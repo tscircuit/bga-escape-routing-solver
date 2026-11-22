@@ -1,0 +1,5 @@
+node_modules/
+cosmos-export/
+.cursor/
+bun.lock
+bun.lockb
