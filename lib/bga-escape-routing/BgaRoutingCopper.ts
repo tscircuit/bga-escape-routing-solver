@@ -47,7 +47,7 @@ export class BgaRoutingCopper {
     this.via = board.via
     this.clearance = board.traceClearance
     this.layers = Array.from({ length: grid.layerCount }, (_, layer) => layer)
-    const owners = new Map<string, number>()
+    const owners = new Map<BgaRoutingPad["connectedTo"][number], number>()
     for (const [index, connection] of board.connections.entries()) {
       owners.set(connection.name, index + 1)
       for (const point of connection.pointsToConnect) {

@@ -1,16 +1,20 @@
 /** Board coordinates in millimetres, with +X right and +Y up. */
 export type BoardPoint = { x: number; y: number }
 
+export type BgaTerminalId = string
+
 export type BgaConnectionPoint = BoardPoint & {
   layer?: string
-  pcb_port_id?: string
-  pointId?: string
+  pcb_port_id?: BgaTerminalId
+  pointId?: BgaTerminalId
 }
 
+export type BgaConnectionName = string
+
 export interface BgaConnection {
-  name: string
-  rootConnectionName?: string
-  __rootConnectionNames?: string[]
+  name: BgaConnectionName
+  rootConnectionName?: BgaConnectionName
+  __rootConnectionNames?: BgaConnectionName[]
   source_trace_id?: string
   nominalTraceWidth?: number
   width?: number
@@ -36,7 +40,7 @@ export type BgaVia = BoardPoint & {
 export interface BgaTrace {
   type: "pcb_trace"
   pcb_trace_id: string
-  connection_name: string
+  connection_name: BgaConnectionName
   source_trace_id?: string
   route: (BgaWire | BgaVia)[]
 }
@@ -66,10 +70,12 @@ export interface BgaRoutingBoard {
   fixedTraces: BgaTrace[]
 }
 
-export interface BgaEscapeRoutingSolverInput {
+export interface BgaRoutingSolverInput {
   board: BgaRoutingBoard
   bga: { center: BoardPoint; pitch: number }
   /** Layer indices increase from top (0) to bottom (layerCount - 1). */
   signalLayers: number[]
   pointPairs: BgaConnection[]
 }
+
+export type BgaEscapeRoutingSolverInput = BgaRoutingSolverInput

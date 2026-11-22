@@ -1,5 +1,6 @@
 import type { BgaRouteFootprint } from "./BgaRoutingCopper"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
+import type { BgaConnectionName } from "./types"
 
 export type BgaTrackUsage = {
   width: number
@@ -7,6 +8,9 @@ export type BgaTrackUsage = {
   viaSites: Set<number>
   footprint: BgaRouteFootprint
 }
+
+// A through-via occupies the same site on both signal surfaces.
+const viaConflictWeight = 4
 
 /** Counts occupied track and drill sites separately from the permanent board keepouts. */
 export class BgaTrackCongestion {
@@ -38,9 +42,9 @@ export class BgaTrackCongestion {
   }
 
   getViaPenalty(site: number): number {
-    // A crowded drill blocks tracks on both surfaces.
     return (
-      this.viaHistory[site]! + this.viaCounts[site]! * this.presentPenalty * 4
+      this.viaHistory[site]! +
+      this.viaCounts[site]! * this.presentPenalty * viaConflictWeight
     )
   }
 
@@ -53,11 +57,13 @@ export class BgaTrackCongestion {
   }
 
   /** Add history around competing sites so adjacent, equivalent tracks can separate on the next pass. */
-  recordConflicts(usage: Map<string, BgaTrackUsage>): Map<string, number> {
-    const conflicts = new Map<string, number>()
+  recordConflicts(
+    trackUsageByConnectionName: ReadonlyMap<BgaConnectionName, BgaTrackUsage>,
+  ): Map<BgaConnectionName, number> {
+    const conflicts = new Map<BgaConnectionName, number>()
     const wireConflicts = new Map<number, number>()
     const viaConflicts = new Map<number, number>()
-    for (const [name, track] of usage) {
+    for (const [connectionName, track] of trackUsageByConnectionName) {
       const counts = this.wireCounts.get(track.width)!
       let conflictCount = 0
       for (const cell of track.wireCells) {
@@ -67,10 +73,13 @@ export class BgaTrackCongestion {
       }
       for (const site of track.viaSites) {
         if (this.viaCounts[site]! < 2) continue
-        viaConflicts.set(site, (viaConflicts.get(site) ?? 0) + 4)
-        conflictCount += 4
+        viaConflicts.set(
+          site,
+          (viaConflicts.get(site) ?? 0) + viaConflictWeight,
+        )
+        conflictCount += viaConflictWeight
       }
-      if (conflictCount) conflicts.set(name, conflictCount)
+      if (conflictCount) conflicts.set(connectionName, conflictCount)
     }
     this.updateHistory(wireConflicts, this.wireHistory)
     this.updateHistory(viaConflicts, this.viaHistory)

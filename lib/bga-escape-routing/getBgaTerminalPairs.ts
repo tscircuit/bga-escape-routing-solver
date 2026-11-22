@@ -1,7 +1,6 @@
-import type { BgaConnection } from "./types"
+import type { BgaConnection, BgaConnectionName, BgaTerminalId } from "./types"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
-import type { TerminalPair } from "./getEscapedTraceRoute"
-
+import type { TerminalPair } from "./bgaTraceRoutes"
 import type { RoutingTerminal } from "./findTerminalEscape"
 
 type PairingTerminal = RoutingTerminal & { viaSite?: number }
@@ -17,7 +16,10 @@ export function getBgaTerminalPairs<T extends PairingTerminal>(
   grid: BgaRoutingGrid,
 ): TerminalPair<T>[] | undefined {
   if (!terminals.length || pointPairs.length !== terminals.length - 1) return
-  const pairByTerminal = new Map<string, Map<string, string>>()
+  const pairByTerminal = new Map<
+    BgaTerminalId,
+    Map<BgaTerminalId, BgaConnectionName>
+  >()
   for (const pair of pointPairs) {
     const [first, second] = pair.pointsToConnect
     const start = first?.pcb_port_id ?? first?.pointId

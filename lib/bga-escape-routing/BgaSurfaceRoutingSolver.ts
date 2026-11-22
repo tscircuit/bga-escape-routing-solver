@@ -1,5 +1,10 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
-import type { BgaEscapeRoutingSolverInput, BgaTrace } from "./types"
+import type { GraphicsObject } from "graphics-debug"
+import type {
+  BgaConnectionName,
+  BgaRoutingSolverInput,
+  BgaTrace,
+} from "./types"
 import type { RoutingTerminal } from "./findTerminalEscape"
 import { BgaRoutingGrid } from "./BgaRoutingGrid"
 import { BgaRoutingCopper } from "./BgaRoutingCopper"
@@ -7,10 +12,12 @@ import { BgaTrackSearch } from "./BgaTrackSearch"
 import { BgaTrackCongestion, type BgaTrackUsage } from "./BgaTrackCongestion"
 import { getBgaRoutingNets, type BgaRoutingNet } from "./getBgaRoutingNets"
 import { getBgaTerminalPairs } from "./getBgaTerminalPairs"
-import { getSurfaceTraceRoute, type TerminalPair } from "./getEscapedTraceRoute"
+import { getSurfaceTraceRoute, type TerminalPair } from "./bgaTraceRoutes"
 import { getBgaRoutingGraphics } from "./getBgaRoutingGraphics"
 
 type SurfaceNet = BgaRoutingNet & { pairs: TerminalPair<RoutingTerminal>[] }
+
+const maxRoutingPasses = 64
 
 /** Route directly from surface pads when the board has no interior signal layer for independent escapes. */
 export class BgaSurfaceRoutingSolver extends BaseSolver {
@@ -21,8 +28,14 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
   private netIndex = 0
   private pairIndex = 0
   private pass = 0
-  private readonly routes = new Map<string, BgaTrace[]>()
-  private readonly usage = new Map<string, BgaTrackUsage>()
+  private readonly routesByConnectionName = new Map<
+    BgaConnectionName,
+    BgaTrace[]
+  >()
+  private readonly trackUsageByConnectionName = new Map<
+    BgaConnectionName,
+    BgaTrackUsage
+  >()
   private pendingRoutes: BgaTrace[] = []
   private wireCells = new Set<number>()
   private viaSites = new Set<number>()
@@ -34,7 +47,7 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
     | "frontier_limit"
     | "congestion"
 
-  constructor(private readonly input: BgaEscapeRoutingSolverInput) {
+  constructor(private readonly input: BgaRoutingSolverInput) {
     super()
   }
 
@@ -87,7 +100,9 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
     const { start, end } = pair
     if (!this.search.active) {
       if (!this.pairIndex) {
-        const previous = this.usage.get(net.connection.name)
+        const previous = this.trackUsageByConnectionName.get(
+          net.connection.name,
+        )
         if (previous) this.congestion.applyFootprint(previous.footprint, -1)
         this.congestion.selectWidth(start.width)
       }
@@ -125,13 +140,13 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
     if (this.pairIndex < net.pairs.length) return
     const footprint = this.copper.getRouteFootprint(this.pendingRoutes)
     this.congestion.applyFootprint(footprint, 1)
-    this.usage.set(net.connection.name, {
+    this.trackUsageByConnectionName.set(net.connection.name, {
       width: start.width,
       wireCells: this.wireCells,
       viaSites: this.viaSites,
       footprint,
     })
-    this.routes.set(net.connection.name, this.pendingRoutes)
+    this.routesByConnectionName.set(net.connection.name, this.pendingRoutes)
     this.wireCells = new Set()
     this.viaSites = new Set()
     this.pendingRoutes = []
@@ -141,7 +156,9 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
   }
 
   private finishPass(): void {
-    const conflicts = this.congestion.recordConflicts(this.usage)
+    const conflicts = this.congestion.recordConflicts(
+      this.trackUsageByConnectionName,
+    )
     this.pass++
     this.stats = {
       pass: this.pass,
@@ -152,7 +169,7 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
       this.solved = true
       return
     }
-    if (this.pass >= 64) {
+    if (this.pass >= maxRoutingPasses) {
       this.failed = true
       this.failure = "congestion"
       this.error = `Surface BGA routing could not separate ${conflicts.size} nets in ${this.pass} passes`
@@ -174,19 +191,19 @@ export class BgaSurfaceRoutingSolver extends BaseSolver {
 
   override getOutput(): BgaTrace[] {
     if (!this.solved) throw new Error("Surface BGA routing has not completed")
-    return Array.from(this.routes.values()).flat()
+    return Array.from(this.routesByConnectionName.values()).flat()
   }
 
-  override getConstructorParams(): [BgaEscapeRoutingSolverInput] {
+  override getConstructorParams(): [BgaRoutingSolverInput] {
     return [this.input]
   }
 
-  override visualize() {
+  override visualize(): GraphicsObject {
     return getBgaRoutingGraphics({
       board: this.input.board,
       countedTerminals: [],
       reservedEscapes: [],
-      routes: Array.from(this.routes.values()).flat(),
+      routes: Array.from(this.routesByConnectionName.values()).flat(),
     })
   }
 }

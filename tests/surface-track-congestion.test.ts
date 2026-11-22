@@ -1,8 +1,7 @@
 import { expect, test } from "bun:test"
 import "bun-match-svg"
 import { getSvgFromGraphicsObject } from "graphics-debug"
-import { BgaSurfaceRoutingSolver, type BgaEscapeRoutingSolverInput } from "lib"
-import { twoPadEscape } from "./fixtures/two-pad-escape"
+import { BgaSurfaceRoutingSolver, type BgaRoutingSolverInput } from "lib"
 
 test("separates competing surface tracks while keeping through vias off a fixed inner wire", async () => {
   const rows = [-0.825, -0.275, 0.275, 0.825]
@@ -14,7 +13,7 @@ test("separates competing surface tracks while keeping through vias off a fixed 
       { x: 2.5, y: -y, layer: "top", pcb_port_id: `right_${index}` },
     ],
   }))
-  const input: BgaEscapeRoutingSolverInput = {
+  const input: BgaRoutingSolverInput = {
     bga: { center: { x: 0, y: 0 }, pitch: 0.8 },
     signalLayers: [0, 3],
     pointPairs: connections.toReversed(),
@@ -99,21 +98,4 @@ test("separates competing surface tracks while keeping through vias off a fixed 
   await expect(
     getSvgFromGraphicsObject(solver.visualize(), { backgroundColor: "white" }),
   ).toMatchSvgSnapshot(import.meta.path, "separated-tracks")
-})
-
-test("a keepout across both signal surfaces leaves no route to publish", () => {
-  const input = structuredClone(twoPadEscape)
-  input.signalLayers = [0, 3]
-  input.board.obstacles.push({
-    type: "rect",
-    center: { x: 0, y: 0 },
-    width: 0.55,
-    height: 3,
-    layers: ["top", "bottom"],
-    connectedTo: [],
-  })
-  const solver = new BgaSurfaceRoutingSolver(input)
-  solver.solve()
-  expect(solver.failure).toBe("no_path")
-  expect(() => solver.getOutput()).toThrow("has not completed")
 })

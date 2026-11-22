@@ -1,4 +1,4 @@
-import type { BgaTrace } from "./types"
+import type { BgaConnectionName, BgaTrace } from "./types"
 import { getLayerName } from "./routingLayers"
 import type { BgaRoutingCopper } from "./BgaRoutingCopper"
 import type { RoutingTerminal, TerminalEscape } from "./findTerminalEscape"
@@ -7,7 +7,7 @@ export type EscapedTerminal = RoutingTerminal & TerminalEscape
 export type TerminalPair<T extends RoutingTerminal = EscapedTerminal> = {
   start: T
   end: T
-  connectionName: string
+  connectionName: BgaConnectionName
 }
 
 type Route = BgaTrace["route"]

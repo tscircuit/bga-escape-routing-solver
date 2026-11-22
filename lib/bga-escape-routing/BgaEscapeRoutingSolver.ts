@@ -1,6 +1,6 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
-import type { BgaTrace, BgaEscapeRoutingSolverInput } from "./types"
+import type { BgaTrace, BgaRoutingSolverInput } from "./types"
 import { getBgaRoutingNets, type BgaRoutingNet } from "./getBgaRoutingNets"
 import { getBgaRoutingGraphics } from "./getBgaRoutingGraphics"
 import { BgaRoutingCopper } from "./BgaRoutingCopper"
@@ -17,7 +17,7 @@ import {
   getReservedEscapeRoute,
   type EscapedTerminal,
   type TerminalPair,
-} from "./getEscapedTraceRoute"
+} from "./bgaTraceRoutes"
 
 type RoutingFailure =
   | "grid_budget"
@@ -47,7 +47,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   private search!: BgaTrackSearch
   private readonly routes: BgaTrace[] = []
 
-  constructor(private readonly input: BgaEscapeRoutingSolverInput) {
+  constructor(private readonly input: BgaRoutingSolverInput) {
     super()
     this.updateRoutingStats()
   }
@@ -205,7 +205,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     return this.routes
   }
 
-  override getConstructorParams(): [BgaEscapeRoutingSolverInput] {
+  override getConstructorParams(): [BgaRoutingSolverInput] {
     return [this.input]
   }
 

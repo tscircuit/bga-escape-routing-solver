@@ -1,4 +1,4 @@
-import type { BgaConnection, BgaEscapeRoutingSolverInput } from "./types"
+import type { BgaConnection, BgaRoutingSolverInput } from "./types"
 import type { RoutingTerminal } from "./findTerminalEscape"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
 import { getLayerIndex } from "./routingLayers"
@@ -11,7 +11,7 @@ export type BgaRoutingNet = {
 }
 
 export function getBgaRoutingNets(
-  input: BgaEscapeRoutingSolverInput,
+  input: BgaRoutingSolverInput,
   grid: BgaRoutingGrid,
 ): { nets: BgaRoutingNet[] } | { error: string } {
   const { board } = input
