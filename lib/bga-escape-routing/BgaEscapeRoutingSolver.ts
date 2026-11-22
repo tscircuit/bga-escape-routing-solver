@@ -1,11 +1,7 @@
 import { BaseSolver } from "@tscircuit/solver-utils"
 import type { GraphicsObject } from "graphics-debug"
-import type {
-  BgaConnection,
-  BgaTrace,
-  BgaEscapeRoutingSolverInput,
-} from "./types"
-import { getLayerIndex } from "./routingLayers"
+import type { BgaTrace, BgaEscapeRoutingSolverInput } from "./types"
+import { getBgaRoutingNets, type BgaRoutingNet } from "./getBgaRoutingNets"
 import { getBgaRoutingGraphics } from "./getBgaRoutingGraphics"
 import { BgaRoutingCopper } from "./BgaRoutingCopper"
 import { BgaRoutingGrid } from "./BgaRoutingGrid"
@@ -15,7 +11,7 @@ import {
   type RoutingTerminal,
   type EscapeSites,
 } from "./findTerminalEscape"
-import { getEscapedTerminalPairs } from "./getEscapedTerminalPairs"
+import { getBgaTerminalPairs } from "./getBgaTerminalPairs"
 import {
   getEscapedTraceRoute,
   getReservedEscapeRoute,
@@ -23,12 +19,6 @@ import {
   type TerminalPair,
 } from "./getEscapedTraceRoute"
 
-type Net = {
-  connection: BgaConnection
-  pointPairs: BgaConnection[]
-  terminals: RoutingTerminal[]
-  span: number
-}
 type RoutingFailure =
   | "grid_budget"
   | "terminal_outside_grid"
@@ -44,7 +34,7 @@ type RoutingStage =
 /** Plan narrow BGA surface escapes before the interconnect competes for through-via sites. */
 export class BgaEscapeRoutingSolver extends BaseSolver {
   private copper!: BgaRoutingCopper
-  private nets: Net[] = []
+  private nets: BgaRoutingNet[] = []
   private terminals: RoutingTerminal[] = []
   private readonly sites = new Map<RoutingTerminal, EscapeSites>()
   private readonly escapes = new Map<RoutingTerminal, EscapedTerminal>()
@@ -74,6 +64,9 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   override _setup(): void {
     const { board } = this.input
     const grid = new BgaRoutingGrid(this.input)
+    if (!grid.innerSignalLayers.length) {
+      throw new Error("BGA escape routing requires an inner signal layer")
+    }
     if (!grid.fitsMemoryBudget()) {
       this.failure = "grid_budget"
       this.failed = true
@@ -81,49 +74,16 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       this.error = `BGA grid exceeds the available routing area or memory budget (${dimensions})`
       return
     }
-    for (const [index, connection] of board.connections.entries()) {
-      let span = 0
-      const width = grid.widthByConnectionName.get(connection.name)!
-      const terminals: RoutingTerminal[] = []
-      for (const [pointIndex, point] of connection.pointsToConnect.entries()) {
-        const terminalId = point.pcb_port_id ?? point.pointId
-        if (
-          !terminalId ||
-          (point.layer !== "top" && point.layer !== "bottom")
-        ) {
-          throw new Error(
-            `Expected a surface pad terminal for ${connection.name}`,
-          )
-        }
-        const z = getLayerIndex(point.layer, board.layerCount)
-        const cell = grid.getCell(point, z)
-        if (cell === undefined) {
-          this.failure = "terminal_outside_grid"
-          this.failed = true
-          this.error = `BGA terminal ${terminalId} is outside the board-edge routing margin`
-          return
-        }
-        const previous = connection.pointsToConnect[pointIndex - 1]
-        if (previous)
-          span += Math.hypot(point.x - previous.x, point.y - previous.y)
-        terminals.push({
-          point: { ...point, layer: point.layer },
-          owner: index + 1,
-          width,
-          terminalId,
-          cell,
-        })
-      }
-      const pointPairs = this.input.pointPairs.filter(
-        (pair) =>
-          pair.name === connection.name ||
-          pair.rootConnectionName === connection.name ||
-          pair.__rootConnectionNames?.includes(connection.name),
-      )
-      this.nets.push({ connection, pointPairs, terminals, span })
-      this.terminals.push(...terminals)
+    const routing = getBgaRoutingNets(this.input, grid)
+    if ("error" in routing) {
+      this.failure = "terminal_outside_grid"
+      this.failed = true
+      this.error = routing.error
+      return
     }
-    this.nets.sort((a, b) => a.span - b.span)
+    this.nets = routing.nets
+    this.terminals = this.nets.flatMap((net) => net.terminals)
+    this.nets.sort((first, second) => first.span - second.span)
     this.copper = new BgaRoutingCopper(grid, board)
     this.search = new BgaTrackSearch(this.copper)
   }
@@ -140,7 +100,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       return
     }
     if (this.pairs.length === 0) {
-      const pairs = getEscapedTerminalPairs(
+      const pairs = getBgaTerminalPairs(
         {
           terminals: net.terminals.map(
             (terminal) => this.escapes.get(terminal)!,

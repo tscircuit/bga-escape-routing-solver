@@ -1,12 +1,14 @@
 import FlatQueue from "flatqueue"
 import { cellsPerBallPitch, gridNeighbors } from "./BgaRoutingGrid"
 import type { BgaRoutingCopper } from "./BgaRoutingCopper"
+import type { BgaTrackCongestion } from "./BgaTrackCongestion"
 
 type TrackEndpoints = {
   start: number
   end: number
   owner: number
   width: number
+  congestion?: BgaTrackCongestion
 }
 type GridStep = {
   cell: number
@@ -26,6 +28,7 @@ export class BgaTrackSearch {
   private readonly viaCost: number
   private endColumn = 0
   private endRow = 0
+  private endLayer = 0
   path?: number[]
   active = false
   failure?: "no_path" | "frontier_limit"
@@ -50,9 +53,20 @@ export class BgaTrackSearch {
     this.wires = this.copper.wires.get(endpoints.width)!
     this.endColumn = endpoints.end % grid.columns
     this.endRow = Math.floor(endpoints.end / grid.columns) % grid.rows
+    this.endLayer = Math.floor(endpoints.end / grid.layerSize)
     this.path = undefined
     this.failure = undefined
     this.active = true
+    if (
+      endpoints.congestion &&
+      [endpoints.start, endpoints.end].some(
+        (cell) =>
+          this.wires[cell] !== 0 && this.wires[cell] !== endpoints.owner,
+      )
+    ) {
+      this.failure = "no_path"
+      this.active = false
+    }
   }
 
   private enqueue(from: number, move: GridStep): void {
@@ -60,7 +74,9 @@ export class BgaTrackSearch {
     const owner = this.wires[cell]
     if (this.visited[cell] || (owner !== 0 && owner !== this.endpoints.owner))
       return
-    const cost = this.costs[from]! + distance
+    const { congestion } = this.endpoints
+    const cost =
+      this.costs[from]! + distance + (congestion?.getWirePenalty(cell) ?? 0)
     if (cost >= this.costs[cell]! - 1e-6) return
     this.costs[cell] = cost
     this.parents[cell] = from
@@ -69,11 +85,18 @@ export class BgaTrackSearch {
     const planarDistance =
       Math.max(dx, dy) + (Math.SQRT2 - 1) * Math.min(dx, dy)
     // Weighted octile A* favors progress across open routing layers.
-    this.frontier.push(cell, cost + 1.125 * planarDistance)
+    const needsVia =
+      congestion &&
+      Math.floor(cell / this.copper.grid.layerSize) !== this.endLayer
+    this.frontier.push(
+      cell,
+      cost + 1.125 * (planarDistance + (needsVia ? this.viaCost : 0)),
+    )
   }
 
   /** Yield between batches so a long A* search can be cancelled or visualized. */
   step(): void {
+    if (!this.active) return
     const { grid } = this.copper
     const { start, end, owner } = this.endpoints
     for (let work = 0; work < 4096 && this.frontier.length > 0; work++) {
@@ -113,13 +136,17 @@ export class BgaTrackSearch {
       // may use its own barrel even when additional drilling here is forbidden.
       const site = cell % grid.layerSize
       const terminalVia =
-        site === start % grid.layerSize || site === end % grid.layerSize
+        !this.endpoints.congestion &&
+        (site === start % grid.layerSize || site === end % grid.layerSize)
       if (!terminalVia && !this.copper.canPlaceVia(site, owner)) continue
       for (const layer of grid.signalLayers) {
         if (layer === z) continue
         this.enqueue(cell, {
           cell: layer * grid.layerSize + site,
-          distance: terminalVia ? 0 : this.viaCost,
+          distance: terminalVia
+            ? 0
+            : this.viaCost +
+              (this.endpoints.congestion?.getViaPenalty(site) ?? 0),
           x,
           y,
         })

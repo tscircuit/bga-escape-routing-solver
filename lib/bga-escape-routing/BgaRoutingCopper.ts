@@ -9,8 +9,19 @@ type CopperPrimitive = {
   wireClearance: number
   viaClearance: number
   pad?: boolean
+  footprint?: TraceCells
   owner: number
 }
+type TraceCells = {
+  wireCells: Map<number, Set<number>>
+  viaSites: Set<number>
+}
+
+export type BgaRouteFootprint = {
+  wireCells: Map<number, Uint32Array>
+  viaSites: Uint32Array
+}
+
 const foreignCopper = -1
 const geometryTolerance = 1e-8
 
@@ -22,11 +33,16 @@ export class BgaRoutingCopper {
   readonly via: BgaRoutingBoard["via"]
   readonly clearance: number
   private readonly layers: number[]
+  private readonly wireMargin: number
 
   constructor(
     readonly grid: BgaRoutingGrid,
     readonly board: BgaRoutingBoard,
   ) {
+    // On shared surfaces the gap to a 45-degree segment can fall between sampled centers.
+    this.wireMargin = grid.innerSignalLayers.length
+      ? grid.step / 25
+      : grid.step / Math.sqrt(8)
     this.via = board.via
     this.clearance = board.traceClearance
     this.layers = Array.from({ length: grid.layerCount }, (_, layer) => layer)
@@ -54,12 +70,13 @@ export class BgaRoutingCopper {
   }
 
   private mark(primitive: CopperPrimitive): void {
-    const { bounds, owner } = primitive
+    const { bounds, owner, footprint } = primitive
     const { columns, rows, origin, step, layerSize } = this.grid
     // Leave a small numerical margin on the routing grid, including inside pad channels.
     const wireMasks = [...this.wires].map(([width, mask]) => ({
       mask,
-      distance: width / 2 + primitive.wireClearance + step / 25,
+      cells: footprint?.wireCells.get(width),
+      distance: width / 2 + primitive.wireClearance + this.wireMargin,
     }))
     const reach = Math.max(
       primitive.viaClearance,
@@ -89,7 +106,9 @@ export class BgaRoutingCopper {
         )
         const site = row * columns + col
         if (distance < primitive.viaClearance - geometryTolerance) {
-          if (primitive.pad) {
+          if (footprint) {
+            footprint.viaSites.add(site)
+          } else if (primitive.pad) {
             const previous = this.viaPadOwners[site]!
             this.viaPadOwners[site] =
               !previous || previous === owner ? owner : foreignCopper
@@ -103,6 +122,10 @@ export class BgaRoutingCopper {
           if (distance >= wire.distance - geometryTolerance) continue
           for (const layer of primitive.layers) {
             const cell = layer * layerSize + site
+            if (wire.cells) {
+              wire.cells.add(cell)
+              continue
+            }
             const previous = wire.mask[cell]!
             wire.mask[cell] =
               !previous || previous === owner ? owner : foreignCopper
@@ -150,7 +173,41 @@ export class BgaRoutingCopper {
     })
   }
 
+  getRouteFootprint(traces: BgaTrace[]): BgaRouteFootprint {
+    const footprint: TraceCells = {
+      wireCells: new Map(
+        Array.from(this.wires.keys(), (width) => [width, new Set<number>()]),
+      ),
+      viaSites: new Set(),
+    }
+    for (const trace of traces)
+      this.rasterizeRoute(trace.route, { owner: foreignCopper, footprint })
+    return {
+      wireCells: new Map(
+        Array.from(footprint.wireCells, ([width, cells]) => [
+          width,
+          Uint32Array.from(cells),
+        ]),
+      ),
+      viaSites: Uint32Array.from(footprint.viaSites),
+    }
+  }
+
   markRoute(route: BgaTrace["route"], owner: number): void {
+    this.rasterizeRoute(route, { owner })
+  }
+
+  private viaToWireClearance(via: BgaRoutingBoard["via"]): number {
+    return Math.max(
+      via.padDiameter / 2 + this.clearance,
+      via.holeDiameter / 2 + (this.board.minTraceToHoleEdgeClearance ?? 0),
+    )
+  }
+
+  private rasterizeRoute(
+    route: BgaTrace["route"],
+    { owner, footprint }: { owner: number; footprint?: TraceCells },
+  ): void {
     for (const [index, point] of route.entries()) {
       if (point.route_type === "via") {
         const padDiameter = point.via_diameter ?? this.via.padDiameter
@@ -159,6 +216,7 @@ export class BgaRoutingCopper {
           this.board.minViaHoleEdgeToViaHoleEdgeClearance ?? 0
         this.mark({
           owner,
+          footprint,
           bounds: {
             minX: point.x,
             maxX: point.x,
@@ -167,7 +225,10 @@ export class BgaRoutingCopper {
           },
           distance: (x, y) => Math.hypot(x - point.x, y - point.y),
           layers: this.layers,
-          wireClearance: padDiameter / 2 + this.clearance,
+          wireClearance: this.viaToWireClearance({
+            padDiameter,
+            holeDiameter,
+          }),
           viaClearance:
             Math.max(
               (padDiameter + this.via.padDiameter) / 2 + this.clearance,
@@ -183,6 +244,7 @@ export class BgaRoutingCopper {
         const width = Math.max(point.width, end.width)
         this.mark({
           owner,
+          footprint,
           bounds: {
             minX: Math.min(point.x, end.x),
             maxX: Math.max(point.x, end.x),
@@ -202,8 +264,10 @@ export class BgaRoutingCopper {
           },
           wireClearance: width / 2 + this.clearance,
           viaClearance:
-            (width + this.via.padDiameter) / 2 +
-            this.clearance +
+            width / 2 +
+            this.viaToWireClearance(this.via) +
+            // Either the movable via or the movable wire must see the same clearance.
+            (footprint ? this.wireMargin : 0) +
             geometryTolerance,
         })
       } else {
