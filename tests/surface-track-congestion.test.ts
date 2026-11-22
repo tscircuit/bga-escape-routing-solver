@@ -24,7 +24,6 @@ test("separates competing surface tracks while keeping through vias off a fixed 
       minTraceWidth: 0.1,
       traceClearance: 0.11,
       viaToPadClearance: 0.11,
-      minTraceToHoleEdgeClearance: 0.2,
       via: { padDiameter: 0.45, holeDiameter: 0.3 },
       connections,
       obstacles: connections.flatMap((connection) =>
@@ -72,9 +71,11 @@ test("separates competing surface tracks while keeping through vias off a fixed 
   expect(vias.length).toBeGreaterThan(0)
   for (const via of vias) {
     const dx = Math.max(0, Math.abs(via.x) - 1.4)
-    const edgeToDrill =
-      Math.hypot(dx, via.y) - 0.18 / 2 - via.via_hole_diameter! / 2
-    expect(edgeToDrill).toBeGreaterThanOrEqual(0.2 - 1e-8)
+    const copperClearance =
+      Math.hypot(dx, via.y) - 0.18 / 2 - via.via_diameter! / 2
+    expect(copperClearance).toBeGreaterThanOrEqual(
+      input.board.traceClearance - 1e-8,
+    )
     expect(via.via_diameter).toBe(input.board.via.padDiameter)
     expect(via.via_hole_diameter).toBe(input.board.via.holeDiameter)
   }

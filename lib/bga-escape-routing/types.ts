@@ -57,7 +57,6 @@ export interface BgaRoutingBoard {
   layerCount: number
   minTraceWidth: number
   minBoardEdgeClearance?: number
-  minTraceToHoleEdgeClearance?: number
   minViaHoleEdgeToViaHoleEdgeClearance?: number
   traceClearance: number
   viaToPadClearance: number

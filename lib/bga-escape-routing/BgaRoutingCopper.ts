@@ -39,7 +39,8 @@ export class BgaRoutingCopper {
     readonly grid: BgaRoutingGrid,
     readonly board: BgaRoutingBoard,
   ) {
-    // On shared surfaces the gap to a 45-degree segment can fall between sampled centers.
+    // Surface negotiation samples track centerlines. Leave half the spacing
+    // between adjacent 45-degree grid tracks (step / sqrt(2)) at the clearance boundary.
     this.wireMargin = grid.innerSignalLayers.length
       ? grid.step / 25
       : grid.step / Math.sqrt(8)
@@ -197,13 +198,6 @@ export class BgaRoutingCopper {
     this.rasterizeRoute(route, { owner })
   }
 
-  private viaToWireClearance(via: BgaRoutingBoard["via"]): number {
-    return Math.max(
-      via.padDiameter / 2 + this.clearance,
-      via.holeDiameter / 2 + (this.board.minTraceToHoleEdgeClearance ?? 0),
-    )
-  }
-
   private rasterizeRoute(
     route: BgaTrace["route"],
     { owner, footprint }: { owner: number; footprint?: TraceCells },
@@ -225,10 +219,7 @@ export class BgaRoutingCopper {
           },
           distance: (x, y) => Math.hypot(x - point.x, y - point.y),
           layers: this.layers,
-          wireClearance: this.viaToWireClearance({
-            padDiameter,
-            holeDiameter,
-          }),
+          wireClearance: padDiameter / 2 + this.clearance,
           viaClearance:
             Math.max(
               (padDiameter + this.via.padDiameter) / 2 + this.clearance,
@@ -264,8 +255,8 @@ export class BgaRoutingCopper {
           },
           wireClearance: width / 2 + this.clearance,
           viaClearance:
-            width / 2 +
-            this.viaToWireClearance(this.via) +
+            (width + this.via.padDiameter) / 2 +
+            this.clearance +
             // Either the movable via or the movable wire must see the same clearance.
             (footprint ? this.wireMargin : 0) +
             geometryTolerance,
