@@ -13,9 +13,11 @@ test("shows the fixed trunk, reserved surface escapes, and completed branch in o
       }),
     ).toMatchSvgSnapshot(import.meta.path, stage)
 
+  const initialStats = solver.stats
   await snapshot("fixed-copper")
   while (!solver.failed && !solver.solved && solver.stats.reservedEscapes < 2)
     solver.step()
+  expect(initialStats.reservedEscapes).toBe(0)
   expect(solver.stats.reservedEscapes).toBe(2)
   expect(solver.stats.routedPointPairs).toBe(0)
   await snapshot("reserved-escapes")

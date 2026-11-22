@@ -59,11 +59,15 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
 
   constructor(private readonly input: BgaEscapeRoutingSolverInput) {
     super()
+    this.updateRoutingStats()
+  }
+
+  private updateRoutingStats(): void {
     this.stats = {
       stage: this.stage,
-      countedTerminals: 0,
-      reservedEscapes: 0,
-      routedPointPairs: 0,
+      countedTerminals: this.sites.size,
+      reservedEscapes: this.escapes.size,
+      routedPointPairs: this.routes.length,
     }
   }
 
@@ -127,6 +131,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   override _step(): void {
     if (this.stage !== "route_connections") {
       this.planNextTerminal()
+      this.updateRoutingStats()
       return
     }
     const net = this.nets[this.netIndex]
@@ -186,7 +191,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       ),
     }
     this.routes.push(trace)
-    this.stats.routedPointPairs = this.routes.length
+    this.updateRoutingStats()
     this.pairIndex++
     if (this.pairIndex < this.pairs.length) return
     for (const trace of this.routes.slice(-this.pairs.length)) {
@@ -209,11 +214,9 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
     if (countSites) {
       this.sites.set(terminal, sites)
-      this.stats.countedTerminals = this.sites.size
     } else {
       const escaped = { ...terminal, ...sites.escape! }
       this.escapes.set(terminal, escaped)
-      this.stats.reservedEscapes = this.escapes.size
       this.copper.markRoute(
         getReservedEscapeRoute(escaped, this.copper),
         terminal.owner,
@@ -235,7 +238,6 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     } else {
       this.stage = "route_connections"
     }
-    this.stats.stage = this.stage
   }
 
   override getOutput(): BgaTrace[] {
