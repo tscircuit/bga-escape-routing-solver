@@ -37,7 +37,15 @@ test("reports both terminals when a keepout separates their legal escape vias", 
     signalLayers: [0, 1, 2, 3],
     bga: { center: { x: 0, y: 0 }, pitch: 0.8 },
   })
+  const prepared = BgaEscapeRoutingSolver.createIfApplicable(
+    solver.getConstructorParams()[0],
+  )
+  expect(prepared).toBeDefined()
+  prepared!.solve()
   solver.solve()
+  expect(prepared!.failure).toBe("no_path")
+  expect(prepared!.error).toBe(solver.error)
+  expect(() => prepared!.getOutput()).toThrow()
 
   expect(solver.failure).toBe("no_path")
   expect(solver.error).toContain("cpu_clock to ram_clock")
