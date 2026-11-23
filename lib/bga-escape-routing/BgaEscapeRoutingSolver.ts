@@ -129,21 +129,24 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
     BgaEscapeRoutingSolver.sortByEscapeScarcity(context.terminals, sites)
     const escapes = new Map<RoutingTerminal, EscapedTerminal>()
-    if (terminalOrderBias !== undefined) {
-      const pending = [...context.terminals]
-      const priority = new Map(
-        terminalOrderBias.map((id, index) => [id, index + 1]),
-      )
-      while (pending.length) {
-        const current = new Map<RoutingTerminal, EscapeSites>()
-        for (const terminal of pending) {
-          const available = findTerminalEscape(
-            { terminal, countSites: true },
-            context.copper,
-          )
-          if (!available.count)
-            return { blockedTerminalId: terminal.terminalId }
-          current.set(terminal, available)
+    const pending = [...context.terminals]
+    const priority = new Map(
+      terminalOrderBias?.map((id, index) => [id, index + 1]),
+    )
+    let current = sites
+    while (pending.length) {
+      if (terminalOrderBias !== undefined) {
+        if (escapes.size > 0) {
+          current = new Map()
+          for (const terminal of pending) {
+            const available = findTerminalEscape(
+              { terminal, countSites: true },
+              context.copper,
+            )
+            if (!available.count)
+              return { blockedTerminalId: terminal.terminalId }
+            current.set(terminal, available)
+          }
         }
         BgaEscapeRoutingSolver.sortByEscapeScarcity(pending, current)
         pending.sort(
@@ -151,34 +154,24 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
             (priority.get(b.terminalId) ?? 0) -
             (priority.get(a.terminalId) ?? 0),
         )
-        const terminal = pending.shift()!,
-          available = findTerminalEscape(
-            { terminal, countSites: false },
-            context.copper,
-          )
-        if (!available.count)
-          throw Error("Native local escape changed without a reservation")
-        const escaped = BgaEscapeRoutingSolver.reserveEscape(
-          { terminal, sites: available },
-          context.copper,
-        )
-        escapes.set(terminal, escaped)
       }
-    } else {
-      for (const terminal of context.terminals) {
-        const available = findTerminalEscape(
+      const terminal = pending.shift()!,
+        available = findTerminalEscape(
           { terminal, countSites: false },
           context.copper,
         )
-        if (!available.count) return { blockedTerminalId: terminal.terminalId }
-        escapes.set(
-          terminal,
-          BgaEscapeRoutingSolver.reserveEscape(
-            { terminal, sites: available },
-            context.copper,
-          ),
-        )
+      if (!available.count) {
+        if (terminalOrderBias !== undefined)
+          throw Error("Native local escape changed without a reservation")
+        return { blockedTerminalId: terminal.terminalId }
       }
+      escapes.set(
+        terminal,
+        BgaEscapeRoutingSolver.reserveEscape(
+          { terminal, sites: available },
+          context.copper,
+        ),
+      )
     }
     const solver = new BgaEscapeRoutingSolver(input)
     solver.preparedEscapes = { context, sites, escapes }
