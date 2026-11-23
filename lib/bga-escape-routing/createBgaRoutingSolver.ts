@@ -5,19 +5,24 @@ import type { BgaRoutingSolverInput } from "./types"
 export type BgaRoutingSolver = BgaEscapeRoutingSolver | BgaSurfaceRoutingSolver
 
 /**
- * Keep an existing regional plan unless it uses an inner layer while the
- * supplied copper shows only surface signal layers. Without a regional plan,
- * choose the BGA solver for the available signal layers.
+ * Prefer board-wide surface routing when every inner layer is reserved.
+ * Otherwise a regional router can use the available signal layers.
  */
 export function createBgaRoutingSolver(
   input: BgaRoutingSolverInput,
-  regionalPlan?: { usesInnerLayer: boolean },
+  options?: { regionalRoutingAvailable: boolean },
 ): BgaRoutingSolver | undefined {
   const bottomLayer = input.board.layerCount - 1
   const hasInnerSignalLayer = input.signalLayers.some(
     (z) => z > 0 && z < bottomLayer,
   )
-  if (regionalPlan && (!regionalPlan.usesInnerLayer || hasInnerSignalLayer)) {
+  const hasBothSurfaces =
+    input.signalLayers.includes(0) && input.signalLayers.includes(bottomLayer)
+  if (!hasInnerSignalLayer && (!hasBothSurfaces || bottomLayer === 0)) return
+  if (
+    options?.regionalRoutingAvailable &&
+    (bottomLayer < 2 || hasInnerSignalLayer)
+  ) {
     return
   }
   return hasInnerSignalLayer

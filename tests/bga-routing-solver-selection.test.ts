@@ -6,11 +6,10 @@ import {
 } from "lib"
 import { twoPadEscape } from "./fixtures/two-pad-escape"
 
-test("selects a BGA solver from the signal layers and the existing regional plan", () => {
+test("selects a BGA solver from the signal layers and regional routing availability", () => {
   const outerLayersOnly = { ...twoPadEscape, signalLayers: [0, 3] }
   const withInnerLayer = { ...twoPadEscape, signalLayers: [0, 1, 3] }
-  const surfacePlan = { usesInnerLayer: false }
-  const innerLayerPlan = { usesInnerLayer: true }
+  const regional = { regionalRoutingAvailable: true }
   const twoLayerBoard = {
     ...twoPadEscape,
     board: { ...twoPadEscape.board, layerCount: 2 },
@@ -26,10 +25,12 @@ test("selects a BGA solver from the signal layers and the existing regional plan
   expect(createBgaRoutingSolver(withInnerLayer)).toBeInstanceOf(
     BgaEscapeRoutingSolver,
   )
+  expect(createBgaRoutingSolver(outerLayersOnly, regional)).toBeInstanceOf(
+    BgaSurfaceRoutingSolver,
+  )
+  expect(createBgaRoutingSolver(withInnerLayer, regional)).toBeUndefined()
+  expect(createBgaRoutingSolver(twoLayerBoard, regional)).toBeUndefined()
   expect(
-    createBgaRoutingSolver(outerLayersOnly, innerLayerPlan),
-  ).toBeInstanceOf(BgaSurfaceRoutingSolver)
-  expect(createBgaRoutingSolver(outerLayersOnly, surfacePlan)).toBeUndefined()
-  expect(createBgaRoutingSolver(withInnerLayer, surfacePlan)).toBeUndefined()
-  expect(createBgaRoutingSolver(withInnerLayer, innerLayerPlan)).toBeUndefined()
+    createBgaRoutingSolver({ ...twoPadEscape, signalLayers: [0] }),
+  ).toBeUndefined()
 })
