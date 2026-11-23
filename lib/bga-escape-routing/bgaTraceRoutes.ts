@@ -1,13 +1,13 @@
-import type { BgaTrace } from "./types"
+import type { BgaConnectionName, BgaTrace } from "./types"
 import { getLayerName } from "./routingLayers"
 import type { BgaRoutingCopper } from "./BgaRoutingCopper"
 import type { RoutingTerminal, TerminalEscape } from "./findTerminalEscape"
 
 export type EscapedTerminal = RoutingTerminal & TerminalEscape
-export type TerminalPair = {
-  start: EscapedTerminal
-  end: EscapedTerminal
-  connectionName: string
+export type TerminalPair<T extends RoutingTerminal = EscapedTerminal> = {
+  start: T
+  end: T
+  connectionName: BgaConnectionName
 }
 
 type Route = BgaTrace["route"]
@@ -90,6 +90,24 @@ export function getEscapedTraceRoute(
   const trunk = path.slice(skipStart ? 1 : 0, skipEnd ? -1 : undefined)
   const cells = [...start.path, ...trunk, ...end.path.toReversed()]
   const route = getWireAndViaRoute(cells, { width: start.width, copper })
+  return addTraceTerminals(route, { start, end })
+}
+
+export function getSurfaceTraceRoute(
+  branch: TerminalPair<RoutingTerminal> & { path: number[] },
+  copper: BgaRoutingCopper,
+): Route {
+  const route = getWireAndViaRoute(branch.path, {
+    width: branch.start.width,
+    copper,
+  })
+  return addTraceTerminals(route, branch)
+}
+
+function addTraceTerminals(
+  route: Route,
+  { start, end }: Pick<TerminalPair<RoutingTerminal>, "start" | "end">,
+): Route {
   const first = route[0]
   const last = route[route.length - 1]
   if (first?.route_type !== "wire" || last?.route_type !== "wire") {

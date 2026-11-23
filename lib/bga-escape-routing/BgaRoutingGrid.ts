@@ -1,4 +1,8 @@
-import type { BoardPoint, BgaEscapeRoutingSolverInput } from "./types"
+import type {
+  BoardPoint,
+  BgaConnectionName,
+  BgaRoutingSolverInput,
+} from "./types"
 
 // An even subdivision represents both ball centers and the centerline between rows.
 export const cellsPerBallPitch = 16
@@ -24,20 +28,19 @@ export class BgaRoutingGrid {
   readonly innerSignalLayers: number[]
   readonly layerSize: number
   readonly cellCount: number
-  readonly widthByConnectionName = new Map<string, number>()
+  readonly widthByConnectionName = new Map<BgaConnectionName, number>()
 
   constructor({
     board,
     bga,
     signalLayers,
-  }: Omit<BgaEscapeRoutingSolverInput, "pointPairs">) {
+  }: Omit<BgaRoutingSolverInput, "pointPairs">) {
     this.signalLayers = signalLayers
     this.innerSignalLayers = signalLayers.filter(
       (z) => z > 0 && z < board.layerCount - 1,
     )
-    if (!this.innerSignalLayers.length) {
-      throw new Error("BGA escape routing requires an inner signal layer")
-    }
+    if (!signalLayers.length)
+      throw new Error("BGA routing requires a signal layer")
     this.step = bga.pitch / cellsPerBallPitch
     const terminalBounds = {
       minX: Infinity,
@@ -105,10 +108,17 @@ export class BgaRoutingGrid {
       (Float64Array.BYTES_PER_ELEMENT +
         Int32Array.BYTES_PER_ELEMENT +
         Uint8Array.BYTES_PER_ELEMENT)
+    const congestionBytes = this.innerSignalLayers.length
+      ? 0
+      : this.cellCount *
+          (Float32Array.BYTES_PER_ELEMENT +
+            widthCount * Uint16Array.BYTES_PER_ELEMENT) +
+        this.layerSize *
+          (Float32Array.BYTES_PER_ELEMENT + Uint16Array.BYTES_PER_ELEMENT)
     return (
       this.rows > 0 &&
       this.columns > 0 &&
-      wireBytes + viaBytes + searchBytes <= 128 * 1024 * 1024
+      wireBytes + viaBytes + searchBytes + congestionBytes <= 128 * 1024 * 1024
     )
   }
 
