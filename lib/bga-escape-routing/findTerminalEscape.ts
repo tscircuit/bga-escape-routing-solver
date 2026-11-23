@@ -7,8 +7,10 @@ export type RoutingTerminal = {
   point: BgaConnectionPoint & { layer: string }
   owner: number
   width: number
+  escapeWidth?: number
   terminalId: string
   cell: number
+  existingVia?: boolean
 }
 
 export type TerminalEscape = { path: number[]; viaSite: number }
@@ -25,8 +27,14 @@ export function findTerminalEscape(
   copper: BgaRoutingCopper,
 ): EscapeSites {
   const { grid } = copper
-  const wireMask = copper.wires.get(terminal.width)!
+  const wireMask = copper.wires.get(terminal.escapeWidth ?? terminal.width)!
   const origin = terminal.cell
+  if (terminal.existingVia)
+    return {
+      count: 1,
+      distance: 0,
+      escape: { path: [origin], viaSite: origin % grid.layerSize },
+    }
   if (wireMask[origin] !== 0 && wireMask[origin] !== terminal.owner) {
     return { count: 0, distance: Infinity }
   }
@@ -38,7 +46,7 @@ export function findTerminalEscape(
   let distance = Infinity
   // Search up to three pitches along the surface. A long excursion is a routing
   // problem in its own right and does not qualify as a local pad escape.
-  const maxSteps = 3 * cellsPerBallPitch
+  const maxSteps = (copper.board.maxLocalEscapePitches ?? 3) * cellsPerBallPitch
   while (frontier.length > 0) {
     const { cell, cost } = frontier.pop()!
     if (cost !== costs.get(cell)) continue
@@ -57,7 +65,7 @@ export function findTerminalEscape(
         }
       }
       // Additional sites cannot make an already unconstrained terminal scarce.
-      if (count === 128) break
+      if (count === (copper.board.interstitialViasOnly ? 8 : 128)) break
     }
     const col = cell % grid.columns
     const row = Math.floor(cell / grid.columns) % grid.rows

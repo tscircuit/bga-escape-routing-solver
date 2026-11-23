@@ -12,6 +12,7 @@ export interface BgaConnection {
   rootConnectionName?: string
   __rootConnectionNames?: string[]
   source_trace_id?: string
+  escapeWidth?: number
   nominalTraceWidth?: number
   width?: number
   pointsToConnect: BgaConnectionPoint[]
@@ -29,6 +30,7 @@ export type BgaVia = BoardPoint & {
   route_type: "via"
   from_layer: string
   to_layer: string
+  layers?: string[]
   via_diameter?: number
   via_hole_diameter?: number
 }
@@ -50,6 +52,7 @@ export interface BgaRoutingPad {
   ccwRotationDegrees?: number
   layers: string[]
   connectedTo: string[]
+  isNonPlatedHole?: boolean
 }
 
 export interface BgaRoutingBoard {
@@ -58,6 +61,13 @@ export interface BgaRoutingBoard {
   minTraceWidth: number
   minBoardEdgeClearance?: number
   minViaHoleEdgeToViaHoleEdgeClearance?: number
+  minTraceToHoleEdgeClearance?: number
+  minViaChannelWidth?: number
+  reuseFixedCopper?: boolean
+  interstitialViasOnly?: boolean
+  requireAllPadViaClearance?: boolean
+  allowOwnedViaReuse?: boolean
+  maxLocalEscapePitches?: number
   traceClearance: number
   viaToPadClearance: number
   via: { padDiameter: number; holeDiameter: number }
@@ -67,6 +77,7 @@ export interface BgaRoutingBoard {
 }
 
 export interface BgaEscapeRoutingSolverInput {
+  memoryBudgetBytes?: number
   board: BgaRoutingBoard
   bga: { center: BoardPoint; pitch: number }
   /** Layer indices increase from top (0) to bottom (layerCount - 1). */

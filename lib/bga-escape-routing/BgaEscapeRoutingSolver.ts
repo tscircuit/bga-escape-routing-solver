@@ -5,7 +5,7 @@ import type {
   BgaTrace,
   BgaEscapeRoutingSolverInput,
 } from "./types"
-import { getLayerIndex } from "./routingLayers"
+import { getLayerIndex, getLayerName } from "./routingLayers"
 import { getBgaRoutingGraphics } from "./getBgaRoutingGraphics"
 import { BgaRoutingCopper } from "./BgaRoutingCopper"
 import { BgaRoutingGrid } from "./BgaRoutingGrid"
@@ -89,34 +89,93 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   static createIfApplicable(
     input: BgaEscapeRoutingSolverInput,
   ): BgaEscapeRoutingSolver | undefined {
+    return this.createPreparedCandidate(input).solver
+  }
+
+  /** Prepare a complete local assignment through the existing escape search.
+   * An unsuccessful candidate never commits copper or selects another router. */
+  static prepareLocalSourceEscapes(
+    input: BgaEscapeRoutingSolverInput,
+    maximumOrderAttempts = 64,
+  ): BgaEscapeRoutingSolver | undefined {
+    if (!Number.isSafeInteger(maximumOrderAttempts) || maximumOrderAttempts < 1)
+      throw Error("Invalid native local escape order budget")
+    const terminalOrderBias: string[] = []
+    for (let attempt = 0; attempt < maximumOrderAttempts; attempt++) {
+      const result = this.createPreparedCandidate(input, terminalOrderBias)
+      if (result.solver) return result.solver
+      if (!result.blockedTerminalId) return
+      terminalOrderBias.push(result.blockedTerminalId)
+    }
+  }
+
+  private static createPreparedCandidate(
+    input: BgaEscapeRoutingSolverInput,
+    terminalOrderBias?: string[],
+  ): {
+    solver?: BgaEscapeRoutingSolver
+    blockedTerminalId?: string
+  } {
     const context = BgaEscapeRoutingSolver.createRoutingContext(input)
-    if ("failure" in context) return
+    if ("failure" in context) return {}
     const sites = new Map<RoutingTerminal, EscapeSites>()
     for (const terminal of context.terminals) {
       const available = findTerminalEscape(
         { terminal, countSites: true },
         context.copper,
       )
-      if (!available.count) return
+      if (!available.count) return {}
       sites.set(terminal, available)
     }
     BgaEscapeRoutingSolver.sortByEscapeScarcity(context.terminals, sites)
     const escapes = new Map<RoutingTerminal, EscapedTerminal>()
-    for (const terminal of context.terminals) {
-      const available = findTerminalEscape(
-        { terminal, countSites: false },
-        context.copper,
+    const pending = [...context.terminals]
+    const priority = new Map(
+      terminalOrderBias?.map((id, index) => [id, index + 1]),
+    )
+    let current = sites
+    while (pending.length) {
+      if (terminalOrderBias !== undefined) {
+        if (escapes.size > 0) {
+          current = new Map()
+          for (const terminal of pending) {
+            const available = findTerminalEscape(
+              { terminal, countSites: true },
+              context.copper,
+            )
+            if (!available.count)
+              return { blockedTerminalId: terminal.terminalId }
+            current.set(terminal, available)
+          }
+        }
+        BgaEscapeRoutingSolver.sortByEscapeScarcity(pending, current)
+        pending.sort(
+          (a, b) =>
+            (priority.get(b.terminalId) ?? 0) -
+            (priority.get(a.terminalId) ?? 0),
+        )
+      }
+      const terminal = pending.shift()!,
+        available = findTerminalEscape(
+          { terminal, countSites: false },
+          context.copper,
+        )
+      if (!available.count) {
+        if (terminalOrderBias !== undefined)
+          throw Error("Native local escape changed without a reservation")
+        return { blockedTerminalId: terminal.terminalId }
+      }
+      escapes.set(
+        terminal,
+        BgaEscapeRoutingSolver.reserveEscape(
+          { terminal, sites: available },
+          context.copper,
+        ),
       )
-      if (!available.count) return
-      const escaped = BgaEscapeRoutingSolver.reserveEscape(
-        { terminal, sites: available },
-        context.copper,
-      )
-      escapes.set(terminal, escaped)
     }
     const solver = new BgaEscapeRoutingSolver(input)
     solver.preparedEscapes = { context, sites, escapes }
-    return solver
+    return { solver }
   }
 
   private static createRoutingContext(
@@ -139,15 +198,35 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       const netTerminals: RoutingTerminal[] = []
       for (const [pointIndex, point] of connection.pointsToConnect.entries()) {
         const terminalId = point.pcb_port_id ?? point.pointId
+        const layer = point.layer
+        const existingVia = !!(
+          board.reuseFixedCopper &&
+          board.fixedTraces.some(
+            (trace) =>
+              trace.connection_name === connection.name &&
+              trace.route.some(
+                (via) =>
+                  via.route_type === "via" &&
+                  Math.hypot(via.x - point.x, via.y - point.y) < 1e-8 &&
+                  (via.layers ?? []).includes(layer ?? "") &&
+                  input.signalLayers.every((z) =>
+                    (via.layers ?? []).includes(
+                      getLayerName(z, board.layerCount),
+                    ),
+                  ),
+              ),
+          )
+        )
         if (
           !terminalId ||
-          (point.layer !== "top" && point.layer !== "bottom")
+          layer === undefined ||
+          (!existingVia && point.layer !== "top" && point.layer !== "bottom")
         ) {
           throw new Error(
             `Expected a surface pad terminal for ${connection.name}`,
           )
         }
-        const z = getLayerIndex(point.layer, board.layerCount)
+        const z = getLayerIndex(layer, board.layerCount)
         const cell = grid.getCell(point, z)
         if (cell === undefined) {
           return {
@@ -159,7 +238,9 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
         if (previous)
           span += Math.hypot(point.x - previous.x, point.y - previous.y)
         netTerminals.push({
-          point: { ...point, layer: point.layer },
+          existingVia,
+          escapeWidth: existingVia ? undefined : connection.escapeWidth,
+          point: { ...point, layer },
           owner: index + 1,
           width,
           terminalId,
@@ -327,6 +408,21 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     } else {
       this.stage = "route_connections"
     }
+  }
+
+  getPreparedEscapeTraces(): {
+    terminalId: string
+    route: BgaTrace["route"]
+  }[] {
+    if (!this.preparedEscapes)
+      throw Error("Local BGA escapes were not prepared")
+    return [...this.preparedEscapes.escapes.values()].map((terminal) => ({
+      terminalId: terminal.terminalId,
+      route: getReservedEscapeRoute(
+        terminal,
+        this.preparedEscapes!.context.copper,
+      ),
+    }))
   }
 
   override getOutput(): BgaTrace[] {

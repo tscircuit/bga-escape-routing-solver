@@ -1,6 +1,6 @@
 import type { BgaRoutingPad, BgaRoutingBoard, BgaTrace } from "./types"
 import { getLayerIndex } from "./routingLayers"
-import type { BgaRoutingGrid } from "./BgaRoutingGrid"
+import { type BgaRoutingGrid, cellsPerBallPitch } from "./BgaRoutingGrid"
 
 type CopperPrimitive = {
   bounds: BgaRoutingBoard["bounds"]
@@ -19,6 +19,7 @@ export class BgaRoutingCopper {
   readonly wires = new Map<number, Int32Array>()
   readonly viaKeepout: Uint8Array
   readonly viaPadOwners: Int32Array
+  private readonly ownedViaSites = new Map<number, number>()
   readonly via: BgaRoutingBoard["via"]
   readonly clearance: number
   private readonly layers: number[]
@@ -38,6 +39,11 @@ export class BgaRoutingCopper {
         if (point.pcb_port_id) owners.set(point.pcb_port_id, index + 1)
       }
       const width = grid.widthByConnectionName.get(connection.name)!
+      if (
+        connection.escapeWidth !== undefined &&
+        !this.wires.has(connection.escapeWidth)
+      )
+        this.wires.set(connection.escapeWidth, new Int32Array(grid.cellCount))
       if (!this.wires.has(width))
         this.wires.set(width, new Int32Array(grid.cellCount))
     }
@@ -50,7 +56,12 @@ export class BgaRoutingCopper {
       this.markObstacle(obstacle, owner ?? foreignCopper)
     }
     for (const trace of board.fixedTraces)
-      this.markRoute(trace.route, foreignCopper)
+      this.markRoute(
+        trace.route,
+        board.reuseFixedCopper
+          ? (owners.get(trace.connection_name) ?? foreignCopper)
+          : foreignCopper,
+      )
   }
 
   private mark(primitive: CopperPrimitive): void {
@@ -141,10 +152,17 @@ export class BgaRoutingCopper {
           Math.max(0, Math.abs(cos * dy - sin * dx) - halfHeight),
         )
       },
-      wireClearance: this.clearance,
+      wireClearance: obstacle.isNonPlatedHole
+        ? (this.board.minTraceToHoleEdgeClearance ?? this.clearance)
+        : this.clearance,
       viaClearance:
         this.via.padDiameter / 2 +
-        this.board.viaToPadClearance +
+        (obstacle.isNonPlatedHole
+          ? Math.max(
+              this.board.viaToPadClearance,
+              this.board.minTraceToHoleEdgeClearance ?? 0,
+            )
+          : this.board.viaToPadClearance) +
         geometryTolerance,
       pad: true,
     })
@@ -153,6 +171,17 @@ export class BgaRoutingCopper {
   markRoute(route: BgaTrace["route"], owner: number): void {
     for (const [index, point] of route.entries()) {
       if (point.route_type === "via") {
+        const cell = this.grid.getCell(point, 0)
+        if (cell !== undefined) {
+          const site = cell % this.grid.layerSize,
+            existing = this.ownedViaSites.get(site)
+          this.ownedViaSites.set(
+            site,
+            existing === undefined || existing === owner
+              ? owner
+              : foreignCopper,
+          )
+        }
         const padDiameter = point.via_diameter ?? this.via.padDiameter
         const holeDiameter = point.via_hole_diameter ?? this.via.holeDiameter
         const holeClearance =
@@ -172,6 +201,11 @@ export class BgaRoutingCopper {
             Math.max(
               (padDiameter + this.via.padDiameter) / 2 + this.clearance,
               (holeDiameter + this.via.holeDiameter) / 2 + holeClearance,
+              this.board.minViaChannelWidth === undefined
+                ? 0
+                : (padDiameter + this.via.padDiameter) / 2 +
+                    this.board.minViaChannelWidth +
+                    2 * this.clearance,
             ) + geometryTolerance,
         })
       } else if (point.route_type === "wire") {
@@ -215,7 +249,27 @@ export class BgaRoutingCopper {
   }
 
   canPlaceVia(site: number, owner: number): boolean {
+    if (this.board.interstitialViasOnly) {
+      const point = this.grid.getPoint(site),
+        origin = this.grid.ballOrigin
+      const x = Math.round((point.x - origin.x) / this.grid.step),
+        y = Math.round((point.y - origin.y) / this.grid.step),
+        half = cellsPerBallPitch / 2
+      if (
+        ((x % cellsPerBallPitch) + cellsPerBallPitch) % cellsPerBallPitch !==
+          half ||
+        ((y % cellsPerBallPitch) + cellsPerBallPitch) % cellsPerBallPitch !==
+          half
+      )
+        return false
+    }
     const padOwner = this.viaPadOwners[site]
-    return this.viaKeepout[site] === 0 && (padOwner === 0 || padOwner === owner)
+    return (
+      (this.viaKeepout[site] === 0 ||
+        (this.board.allowOwnedViaReuse === true &&
+          this.ownedViaSites.get(site) === owner)) &&
+      (padOwner === 0 ||
+        (this.board.requireAllPadViaClearance !== true && padOwner === owner))
+    )
   }
 }
