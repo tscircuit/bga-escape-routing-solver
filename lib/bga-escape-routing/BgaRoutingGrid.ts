@@ -1,4 +1,8 @@
-import type { BoardPoint, BgaEscapeRoutingSolverInput } from "./types"
+import type {
+  BoardPoint,
+  BgaConnectionName,
+  BgaEscapeRoutingSolverInput,
+} from "./types"
 
 // An even subdivision represents both ball centers and the centerline between rows.
 export const cellsPerBallPitch = 16
@@ -13,7 +17,8 @@ export const gridNeighbors = [
   [-1, -1],
 ] as const
 
-/** Board-world XY in mm (+X right, +Y up), with Z increasing from top to bottom. */
+/** Board-world XY points in mm: +X right, +Y up, right-handed with +Z above.
+ * Layer indices increase from top to bottom. */
 export class BgaRoutingGrid {
   readonly step: number
   readonly origin: BoardPoint
@@ -24,7 +29,7 @@ export class BgaRoutingGrid {
   readonly innerSignalLayers: number[]
   readonly layerSize: number
   readonly cellCount: number
-  readonly widthByConnectionName = new Map<string, number>()
+  readonly widthByConnectionName = new Map<BgaConnectionName, number>()
 
   constructor({
     board,

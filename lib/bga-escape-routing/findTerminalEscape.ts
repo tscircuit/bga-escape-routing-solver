@@ -1,5 +1,5 @@
 import FlatQueue from "flatqueue"
-import type { BgaConnectionPoint } from "./types"
+import type { BgaConnectionPoint, BgaTerminalId } from "./types"
 import { cellsPerBallPitch, gridNeighbors } from "./BgaRoutingGrid"
 import type { BgaRoutingCopper } from "./BgaRoutingCopper"
 
@@ -7,7 +7,7 @@ export type RoutingTerminal = {
   point: BgaConnectionPoint & { layer: string }
   owner: number
   width: number
-  terminalId: string
+  terminalId: BgaTerminalId
   cell: number
 }
 

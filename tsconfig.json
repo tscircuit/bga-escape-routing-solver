@@ -15,5 +15,13 @@
       "lib": ["./lib/index.ts"]
     }
   },
-  "include": ["lib", "tests", "pages", "vite.config.ts", "main.tsx"]
+  "include": [
+    "lib",
+    "tests",
+    "pages",
+    "vite.config.ts",
+    "main.tsx",
+    "cosmos.decorator.tsx",
+    "tailwind.config.ts"
+  ]
 }
