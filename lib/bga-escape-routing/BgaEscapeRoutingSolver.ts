@@ -5,7 +5,7 @@ import type {
   BgaTrace,
   BgaEscapeRoutingSolverInput,
 } from "./types"
-import { getLayerIndex } from "./routingLayers"
+import { getLayerIndex, getLayerName } from "./routingLayers"
 import { getBgaRoutingGraphics } from "./getBgaRoutingGraphics"
 import { BgaRoutingCopper } from "./BgaRoutingCopper"
 import { BgaRoutingGrid } from "./BgaRoutingGrid"
@@ -104,7 +104,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     for (let attempt = 0; attempt < maximumOrderAttempts; attempt++) {
       const result = this.createPreparedCandidate(input, terminalOrderBias)
       if (result.solver) return result.solver
-      if (result.initiallyBlocked || !result.blockedTerminalId) return
+      if (!result.blockedTerminalId) return
       terminalOrderBias.push(result.blockedTerminalId)
     }
   }
@@ -115,7 +115,6 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   ): {
     solver?: BgaEscapeRoutingSolver
     blockedTerminalId?: string
-    initiallyBlocked?: boolean
   } {
     const context = BgaEscapeRoutingSolver.createRoutingContext(input)
     if ("failure" in context) return {}
@@ -125,11 +124,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
         { terminal, countSites: true },
         context.copper,
       )
-      if (!available.count)
-        return {
-          blockedTerminalId: terminal.terminalId,
-          initiallyBlocked: true,
-        }
+      if (!available.count) return {}
       sites.set(terminal, available)
     }
     BgaEscapeRoutingSolver.sortByEscapeScarcity(context.terminals, sites)
@@ -223,11 +218,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
                   (via.layers ?? []).includes(layer ?? "") &&
                   input.signalLayers.every((z) =>
                     (via.layers ?? []).includes(
-                      z === 0
-                        ? "top"
-                        : z === board.layerCount - 1
-                          ? "bottom"
-                          : `inner${z}`,
+                      getLayerName(z, board.layerCount),
                     ),
                   ),
               ),
