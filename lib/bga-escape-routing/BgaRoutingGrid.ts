@@ -61,7 +61,11 @@ export class BgaRoutingGrid {
       const width =
         connection.nominalTraceWidth ?? connection.width ?? board.minTraceWidth
       this.widthByConnectionName.set(connection.name, width)
-      maxCopperDiameter = Math.max(maxCopperDiameter, width)
+      maxCopperDiameter = Math.max(
+        maxCopperDiameter,
+        width,
+        connection.escapeWidth ?? width,
+      )
       for (const point of connection.pointsToConnect) {
         terminalBounds.minX = Math.min(terminalBounds.minX, point.x)
         terminalBounds.minY = Math.min(terminalBounds.minY, point.y)
