@@ -11,11 +11,15 @@ export type TerminalPair = {
 }
 
 type Route = BgaTrace["route"]
-type RouteContext = { width: number; copper: BgaRoutingCopper }
+type RouteContext = {
+  width: number
+  copper: BgaRoutingCopper
+  widthByCell?: Map<number, number>
+}
 
 function getWireAndViaRoute(
   cells: number[],
-  { width, copper }: RouteContext,
+  { width, copper, widthByCell }: RouteContext,
 ): Route {
   const { grid } = copper
   const vertices = cells.filter(
@@ -23,7 +27,11 @@ function getWireAndViaRoute(
   )
   const corners = vertices.filter((cell, index) => {
     if (!index || index === vertices.length - 1) return true
-    return cell - vertices[index - 1]! !== vertices[index + 1]! - cell
+    return (
+      cell - vertices[index - 1]! !== vertices[index + 1]! - cell ||
+      (widthByCell?.get(cell) ?? width) !==
+        (widthByCell?.get(vertices[index - 1]!) ?? width)
+    )
   })
   const route: Route = []
   for (const [index, cell] of corners.entries()) {
@@ -49,7 +57,12 @@ function getWireAndViaRoute(
         })
       }
     }
-    route.push({ route_type: "wire", ...point, layer, width })
+    route.push({
+      route_type: "wire",
+      ...point,
+      layer,
+      width: widthByCell?.get(cell) ?? width,
+    })
   }
   return route
 }
@@ -59,16 +72,23 @@ export function getReservedEscapeRoute(
   copper: BgaRoutingCopper,
 ): Route {
   const { point, path, width, viaSite } = terminal
+  if (terminal.existingVia)
+    return [
+      { route_type: "wire", x: point.x, y: point.y, width, layer: point.layer },
+    ]
   const { innerSignalLayers } = copper.grid
   const targetLayer =
     point.layer === "top" ? innerSignalLayers[0]! : innerSignalLayers.at(-1)!
   const viaCell = targetLayer * copper.grid.layerSize + viaSite
-  const route = getWireAndViaRoute([...path, viaCell], { width, copper })
+  const route = getWireAndViaRoute([...path, viaCell], {
+    width: terminal.escapeWidth ?? width,
+    copper,
+  })
   route.unshift({
     route_type: "wire",
     x: point.x,
     y: point.y,
-    width,
+    width: terminal.escapeWidth ?? width,
     layer: point.layer,
   })
   return route
@@ -89,7 +109,24 @@ export function getEscapedTraceRoute(
     path.length > 1 && lastSite === path[path.length - 2]! % layerSize
   const trunk = path.slice(skipStart ? 1 : 0, skipEnd ? -1 : undefined)
   const cells = [...start.path, ...trunk, ...end.path.toReversed()]
-  const route = getWireAndViaRoute(cells, { width: start.width, copper })
+  const widthByCell = new Map<number, number>()
+  for (const terminal of [start, end])
+    for (const cell of terminal.path)
+      widthByCell.set(cell, terminal.escapeWidth ?? terminal.width)
+  const route = getWireAndViaRoute(cells, {
+    width: start.width,
+    copper,
+    widthByCell,
+  })
+  for (const point of route)
+    for (const terminal of [start, end])
+      if (terminal.existingVia) {
+        const site = gridPoint(terminal, copper)
+        if (Math.hypot(point.x - site.x, point.y - site.y) < 1e-8) {
+          point.x = terminal.point.x
+          point.y = terminal.point.y
+        }
+      }
   const first = route[0]
   const last = route[route.length - 1]
   if (first?.route_type !== "wire" || last?.route_type !== "wire") {
@@ -100,7 +137,7 @@ export function getEscapedTraceRoute(
     route_type: "wire" as const,
     x: start.point.x,
     y: start.point.y,
-    width: start.width,
+    width: start.escapeWidth ?? start.width,
     layer: start.point.layer,
     start_pcb_port_id: start.point.pcb_port_id,
   }
@@ -108,7 +145,7 @@ export function getEscapedTraceRoute(
     route_type: "wire" as const,
     x: end.point.x,
     y: end.point.y,
-    width: end.width,
+    width: end.escapeWidth ?? end.width,
     layer: end.point.layer,
     end_pcb_port_id: end.point.pcb_port_id,
   }
@@ -119,4 +156,8 @@ export function getEscapedTraceRoute(
     route.push(endWire)
   else Object.assign(last, endWire)
   return route
+}
+
+function gridPoint(terminal: EscapedTerminal, copper: BgaRoutingCopper) {
+  return copper.grid.getPoint(terminal.viaSite)
 }

@@ -15,6 +15,8 @@ export const gridNeighbors = [
 
 /** Board-world XY in mm (+X right, +Y up), with Z increasing from top to bottom. */
 export class BgaRoutingGrid {
+  readonly ballOrigin: BoardPoint
+  readonly memoryBudgetBytes: number
   readonly step: number
   readonly origin: BoardPoint
   readonly columns: number
@@ -24,13 +26,22 @@ export class BgaRoutingGrid {
   readonly innerSignalLayers: number[]
   readonly layerSize: number
   readonly cellCount: number
+  private readonly inputEscapeWidths: number[]
   readonly widthByConnectionName = new Map<string, number>()
 
   constructor({
     board,
     bga,
     signalLayers,
+    memoryBudgetBytes = 128 * 1024 * 1024,
   }: Omit<BgaEscapeRoutingSolverInput, "pointPairs">) {
+    if (!Number.isSafeInteger(memoryBudgetBytes) || memoryBudgetBytes < 1)
+      throw new Error("Invalid BGA memory budget")
+    this.inputEscapeWidths = board.connections.flatMap((c) =>
+      c.escapeWidth === undefined ? [] : [c.escapeWidth],
+    )
+    this.ballOrigin = bga.center
+    this.memoryBudgetBytes = memoryBudgetBytes
     this.signalLayers = signalLayers
     this.innerSignalLayers = signalLayers.filter(
       (z) => z > 0 && z < board.layerCount - 1,
@@ -95,7 +106,10 @@ export class BgaRoutingGrid {
 
   /** Persistent masks and one reusable search workspace share a 128 MiB budget. */
   fitsMemoryBudget(): boolean {
-    const widthCount = new Set(this.widthByConnectionName.values()).size
+    const widthCount = new Set([
+      ...this.widthByConnectionName.values(),
+      ...this.inputEscapeWidths,
+    ]).size
     const wireBytes = this.cellCount * widthCount * Int32Array.BYTES_PER_ELEMENT
     const viaBytes =
       this.layerSize *
@@ -108,7 +122,7 @@ export class BgaRoutingGrid {
     return (
       this.rows > 0 &&
       this.columns > 0 &&
-      wireBytes + viaBytes + searchBytes <= 128 * 1024 * 1024
+      wireBytes + viaBytes + searchBytes <= this.memoryBudgetBytes
     )
   }
 
