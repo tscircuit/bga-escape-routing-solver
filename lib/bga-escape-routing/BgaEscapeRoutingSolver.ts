@@ -102,17 +102,17 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       throw Error("Invalid native local escape order budget")
     const terminalOrderBias: string[] = []
     for (let attempt = 0; attempt < maximumOrderAttempts; attempt++) {
-      const result = this.createPreparedCandidate({
-        ...input,
-        terminalOrderBias,
-      })
+      const result = this.createPreparedCandidate(input, terminalOrderBias)
       if (result.solver) return result.solver
       if (result.initiallyBlocked || !result.blockedTerminalId) return
       terminalOrderBias.push(result.blockedTerminalId)
     }
   }
 
-  private static createPreparedCandidate(input: BgaEscapeRoutingSolverInput): {
+  private static createPreparedCandidate(
+    input: BgaEscapeRoutingSolverInput,
+    terminalOrderBias?: string[],
+  ): {
     solver?: BgaEscapeRoutingSolver
     blockedTerminalId?: string
     initiallyBlocked?: boolean
@@ -134,10 +134,10 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
     BgaEscapeRoutingSolver.sortByEscapeScarcity(context.terminals, sites)
     const escapes = new Map<RoutingTerminal, EscapedTerminal>()
-    if (input.terminalOrderBias !== undefined) {
+    if (terminalOrderBias !== undefined) {
       const pending = [...context.terminals]
       const priority = new Map(
-        input.terminalOrderBias.map((id, index) => [id, index + 1]),
+        terminalOrderBias.map((id, index) => [id, index + 1]),
       )
       while (pending.length) {
         const current = new Map<RoutingTerminal, EscapeSites>()

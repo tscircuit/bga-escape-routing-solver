@@ -77,7 +77,6 @@ export interface BgaRoutingBoard {
 }
 
 export interface BgaEscapeRoutingSolverInput {
-  terminalOrderBias?: string[]
   memoryBudgetBytes?: number
   board: BgaRoutingBoard
   bga: { center: BoardPoint; pitch: number }
