@@ -70,10 +70,7 @@ export class BgaRoutingCopper {
     // Leave a small numerical margin on the routing grid, including inside pad channels.
     const wireMasks = [...this.wires].map(([width, mask]) => ({
       mask,
-      distance:
-        width / 2 +
-        primitive.wireClearance +
-        (this.board.wireSafetyMargin ?? step / 25),
+      distance: width / 2 + primitive.wireClearance + step / 25,
     }))
     const reach = Math.max(
       primitive.viaClearance,

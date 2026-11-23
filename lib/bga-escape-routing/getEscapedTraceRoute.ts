@@ -121,7 +121,7 @@ export function getEscapedTraceRoute(
   for (const point of route)
     for (const terminal of [start, end])
       if (terminal.existingVia) {
-        const site = gridPoint(terminal, copper)
+        const site = copper.grid.getPoint(terminal.viaSite)
         if (Math.hypot(point.x - site.x, point.y - site.y) < 1e-8) {
           point.x = terminal.point.x
           point.y = terminal.point.y
@@ -156,8 +156,4 @@ export function getEscapedTraceRoute(
     route.push(endWire)
   else Object.assign(last, endWire)
   return route
-}
-
-function gridPoint(terminal: EscapedTerminal, copper: BgaRoutingCopper) {
-  return copper.grid.getPoint(terminal.viaSite)
 }

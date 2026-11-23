@@ -62,7 +62,6 @@ export interface BgaRoutingBoard {
   minBoardEdgeClearance?: number
   minViaHoleEdgeToViaHoleEdgeClearance?: number
   minTraceToHoleEdgeClearance?: number
-  wireSafetyMargin?: number
   minViaChannelWidth?: number
   reuseFixedCopper?: boolean
   interstitialViasOnly?: boolean

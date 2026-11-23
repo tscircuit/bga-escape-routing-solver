@@ -136,6 +136,9 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     const escapes = new Map<RoutingTerminal, EscapedTerminal>()
     if (input.terminalOrderBias !== undefined) {
       const pending = [...context.terminals]
+      const priority = new Map(
+        input.terminalOrderBias.map((id, index) => [id, index + 1]),
+      )
       while (pending.length) {
         const current = new Map<RoutingTerminal, EscapeSites>()
         for (const terminal of pending) {
@@ -148,9 +151,6 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
           current.set(terminal, available)
         }
         BgaEscapeRoutingSolver.sortByEscapeScarcity(pending, current)
-        const priority = new Map(
-          (input.terminalOrderBias ?? []).map((id, index) => [id, index + 1]),
-        )
         pending.sort(
           (a, b) =>
             (priority.get(b.terminalId) ?? 0) -
