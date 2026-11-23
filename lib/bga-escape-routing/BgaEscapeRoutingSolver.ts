@@ -29,6 +29,18 @@ type Net = {
   terminals: RoutingTerminal[]
   span: number
 }
+type RoutingContext = {
+  copper: BgaRoutingCopper
+  nets: Net[]
+  terminals: RoutingTerminal[]
+}
+
+type PreparedEscapes = {
+  context: RoutingContext
+  sites: Map<RoutingTerminal, EscapeSites>
+  escapes: Map<RoutingTerminal, EscapedTerminal>
+}
+
 type RoutingFailure =
   | "grid_budget"
   | "terminal_outside_grid"
@@ -43,6 +55,7 @@ type RoutingStage =
 
 /** Plan narrow BGA surface escapes before the interconnect competes for through-via sites. */
 export class BgaEscapeRoutingSolver extends BaseSolver {
+  private preparedEscapes?: PreparedEscapes
   private copper!: BgaRoutingCopper
   private nets: Net[] = []
   private terminals: RoutingTerminal[] = []
@@ -71,20 +84,59 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
   }
 
-  override _setup(): void {
-    const { board } = this.input
-    const grid = new BgaRoutingGrid(this.input)
-    if (!grid.fitsMemoryBudget()) {
-      this.failure = "grid_budget"
-      this.failed = true
-      const dimensions = [grid.columns, grid.rows, grid.layerCount].join(" × ")
-      this.error = `BGA grid exceeds the available routing area or memory budget (${dimensions})`
-      return
+  /** Prepare the required local through-via escapes before selecting this strategy.
+   * Missing local access is unsupported input; unexpected errors still propagate. */
+  static createIfApplicable(
+    input: BgaEscapeRoutingSolverInput,
+  ): BgaEscapeRoutingSolver | undefined {
+    const context = BgaEscapeRoutingSolver.createRoutingContext(input)
+    if ("failure" in context) return
+    const sites = new Map<RoutingTerminal, EscapeSites>()
+    for (const terminal of context.terminals) {
+      const available = findTerminalEscape(
+        { terminal, countSites: true },
+        context.copper,
+      )
+      if (!available.count) return
+      sites.set(terminal, available)
     }
+    BgaEscapeRoutingSolver.sortByEscapeScarcity(context.terminals, sites)
+    const escapes = new Map<RoutingTerminal, EscapedTerminal>()
+    for (const terminal of context.terminals) {
+      const available = findTerminalEscape(
+        { terminal, countSites: false },
+        context.copper,
+      )
+      if (!available.count) return
+      const escaped = BgaEscapeRoutingSolver.reserveEscape(
+        { terminal, sites: available },
+        context.copper,
+      )
+      escapes.set(terminal, escaped)
+    }
+    const solver = new BgaEscapeRoutingSolver(input)
+    solver.preparedEscapes = { context, sites, escapes }
+    return solver
+  }
+
+  private static createRoutingContext(
+    input: BgaEscapeRoutingSolverInput,
+  ): RoutingContext | { failure: RoutingFailure; error: string } {
+    const { board } = input
+    const grid = new BgaRoutingGrid(input)
+    if (!grid.fitsMemoryBudget()) {
+      const dimensions = [grid.columns, grid.rows, grid.layerCount].join(" × ")
+      return {
+        failure: "grid_budget",
+        error: `BGA grid exceeds the available routing area or memory budget (${dimensions})`,
+      }
+    }
+    const nets: Net[] = []
+    const terminals: RoutingTerminal[] = []
     for (const [index, connection] of board.connections.entries()) {
       let span = 0
       const width = grid.widthByConnectionName.get(connection.name)!
-      const terminals: RoutingTerminal[] = []
+      const netTerminals: RoutingTerminal[] = []
       for (const [pointIndex, point] of connection.pointsToConnect.entries()) {
         const terminalId = point.pcb_port_id ?? point.pointId
         if (
@@ -98,15 +150,15 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
         const z = getLayerIndex(point.layer, board.layerCount)
         const cell = grid.getCell(point, z)
         if (cell === undefined) {
-          this.failure = "terminal_outside_grid"
-          this.failed = true
-          this.error = `BGA terminal ${terminalId} is outside the board-edge routing margin`
-          return
+          return {
+            failure: "terminal_outside_grid",
+            error: `BGA terminal ${terminalId} is outside the board-edge routing margin`,
+          }
         }
         const previous = connection.pointsToConnect[pointIndex - 1]
         if (previous)
           span += Math.hypot(point.x - previous.x, point.y - previous.y)
-        terminals.push({
+        netTerminals.push({
           point: { ...point, layer: point.layer },
           owner: index + 1,
           width,
@@ -114,18 +166,63 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
           cell,
         })
       }
-      const pointPairs = this.input.pointPairs.filter(
+      const pointPairs = input.pointPairs.filter(
         (pair) =>
           pair.name === connection.name ||
           pair.rootConnectionName === connection.name ||
           pair.__rootConnectionNames?.includes(connection.name),
       )
-      this.nets.push({ connection, pointPairs, terminals, span })
-      this.terminals.push(...terminals)
+      nets.push({ connection, pointPairs, terminals: netTerminals, span })
+      terminals.push(...netTerminals)
     }
-    this.nets.sort((a, b) => a.span - b.span)
-    this.copper = new BgaRoutingCopper(grid, board)
+    nets.sort((a, b) => a.span - b.span)
+    return { copper: new BgaRoutingCopper(grid, board), nets, terminals }
+  }
+
+  private static sortByEscapeScarcity(
+    terminals: RoutingTerminal[],
+    sites: ReadonlyMap<RoutingTerminal, EscapeSites>,
+  ): void {
+    terminals.sort((a, b) => {
+      const first = sites.get(a)!
+      const second = sites.get(b)!
+      const byScarcity =
+        first.count - second.count || second.distance - first.distance
+      if (byScarcity || a.terminalId === b.terminalId) return byScarcity
+      return a.terminalId < b.terminalId ? -1 : 1
+    })
+  }
+
+  private static reserveEscape(
+    { terminal, sites }: { terminal: RoutingTerminal; sites: EscapeSites },
+    copper: BgaRoutingCopper,
+  ): EscapedTerminal {
+    const escaped = { ...terminal, ...sites.escape! }
+    copper.markRoute(getReservedEscapeRoute(escaped, copper), terminal.owner)
+    return escaped
+  }
+
+  override _setup(): void {
+    const context =
+      this.preparedEscapes?.context ??
+      BgaEscapeRoutingSolver.createRoutingContext(this.input)
+    if ("failure" in context) {
+      this.failure = context.failure
+      this.error = context.error
+      this.failed = true
+      return
+    }
+    this.copper = context.copper
+    this.nets = context.nets
+    this.terminals = context.terminals
     this.search = new BgaTrackSearch(this.copper)
+    if (this.preparedEscapes) {
+      for (const [terminal, sites] of this.preparedEscapes.sites)
+        this.sites.set(terminal, sites)
+      for (const [terminal, escape] of this.preparedEscapes.escapes)
+        this.escapes.set(terminal, escape)
+      this.stage = "route_connections"
+    }
   }
 
   override _step(): void {
@@ -215,25 +312,17 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     if (countSites) {
       this.sites.set(terminal, sites)
     } else {
-      const escaped = { ...terminal, ...sites.escape! }
-      this.escapes.set(terminal, escaped)
-      this.copper.markRoute(
-        getReservedEscapeRoute(escaped, this.copper),
-        terminal.owner,
+      const escaped = BgaEscapeRoutingSolver.reserveEscape(
+        { terminal, sites },
+        this.copper,
       )
+      this.escapes.set(terminal, escaped)
     }
     this.terminalIndex++
     if (this.terminalIndex < this.terminals.length) return
     this.terminalIndex = 0
     if (countSites) {
-      this.terminals.sort((a, b) => {
-        const first = this.sites.get(a)!
-        const second = this.sites.get(b)!
-        const byScarcity =
-          first.count - second.count || second.distance - first.distance
-        if (byScarcity || a.terminalId === b.terminalId) return byScarcity
-        return a.terminalId < b.terminalId ? -1 : 1
-      })
+      BgaEscapeRoutingSolver.sortByEscapeScarcity(this.terminals, this.sites)
       this.stage = "reserve_escapes"
     } else {
       this.stage = "route_connections"
