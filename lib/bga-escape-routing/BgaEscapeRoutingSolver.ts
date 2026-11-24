@@ -54,7 +54,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   private pairs: TerminalPair[] = []
   private pairIndex = 0
   failure?: RoutingFailure
-  private search!: BgaTrackSearch
+  private search?: BgaTrackSearch
   private readonly routes: BgaTrace[] = []
 
   constructor(private readonly input: BgaEscapeRoutingSolverInput) {
@@ -69,6 +69,19 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       reservedEscapes: this.escapes.size,
       routedPointPairs: this.routes.length,
     }
+  }
+
+  /** Prepare local through-via escapes before selecting this routing strategy. */
+  static createIfApplicable(
+    input: BgaEscapeRoutingSolverInput,
+  ): BgaEscapeRoutingSolver | undefined {
+    const solver = new BgaEscapeRoutingSolver(input)
+    solver.setup()
+    // Preparation does not spend the later interconnect iteration budget.
+    while (!solver.failed && solver.stage !== "route_connections")
+      solver.planNextTerminal()
+    if (solver.failed) return
+    return solver
   }
 
   override _setup(): void {
@@ -125,7 +138,6 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
     this.nets.sort((a, b) => a.span - b.span)
     this.copper = new BgaRoutingCopper(grid, board)
-    this.search = new BgaTrackSearch(this.copper)
   }
 
   override _step(): void {
@@ -159,6 +171,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     }
     const pair = this.pairs[this.pairIndex]!
     const { grid } = this.copper
+    this.search ??= new BgaTrackSearch(this.copper)
     if (!this.search.active) {
       // Spread the starts of successive nets over the proven inner signal layers.
       // Both reserved through-vias can reach every one of these layers.
