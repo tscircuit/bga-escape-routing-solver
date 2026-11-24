@@ -1,4 +1,4 @@
-import type { BgaConnection } from "./types"
+import type { BgaConnection, BgaConnectionName, BgaTerminalId } from "./types"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
 import type { EscapedTerminal, TerminalPair } from "./getEscapedTraceRoute"
 
@@ -13,16 +13,21 @@ export function getEscapedTerminalPairs(
   grid: BgaRoutingGrid,
 ): TerminalPair[] | undefined {
   if (!terminals.length || pointPairs.length !== terminals.length - 1) return
-  const pairByTerminal = new Map<string, Map<string, string>>()
+  const connectionNameByTerminalPair = new Map<
+    BgaTerminalId,
+    Map<BgaTerminalId, BgaConnectionName>
+  >()
   for (const pair of pointPairs) {
     const [first, second] = pair.pointsToConnect
     const start = first?.pcb_port_id ?? first?.pointId
     const end = second?.pcb_port_id ?? second?.pointId
     if (!start || !end || pair.pointsToConnect.length !== 2) return
-    if (!pairByTerminal.has(start)) pairByTerminal.set(start, new Map())
-    if (!pairByTerminal.has(end)) pairByTerminal.set(end, new Map())
-    pairByTerminal.get(start)!.set(end, pair.name)
-    pairByTerminal.get(end)!.set(start, pair.name)
+    if (!connectionNameByTerminalPair.has(start))
+      connectionNameByTerminalPair.set(start, new Map())
+    if (!connectionNameByTerminalPair.has(end))
+      connectionNameByTerminalPair.set(end, new Map())
+    connectionNameByTerminalPair.get(start)!.set(end, pair.name)
+    connectionNameByTerminalPair.get(end)!.set(start, pair.name)
   }
   const routed = new Set([terminals[0]!])
   const branches: TerminalPair[] = []
@@ -33,7 +38,7 @@ export function getEscapedTerminalPairs(
       const first = grid.getPoint(start.viaSite)
       for (const end of terminals) {
         if (routed.has(end)) continue
-        const connectionName = pairByTerminal
+        const connectionName = connectionNameByTerminalPair
           .get(start.terminalId)
           ?.get(end.terminalId)
         if (!connectionName) continue

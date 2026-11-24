@@ -1,4 +1,9 @@
-import type { BgaRoutingPad, BgaRoutingBoard, BgaTrace } from "./types"
+import type {
+  BgaConnectivityKey,
+  BgaRoutingPad,
+  BgaRoutingBoard,
+  BgaTrace,
+} from "./types"
 import { getLayerIndex } from "./routingLayers"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
 
@@ -30,12 +35,13 @@ export class BgaRoutingCopper {
     this.via = board.via
     this.clearance = board.traceClearance
     this.layers = Array.from({ length: grid.layerCount }, (_, layer) => layer)
-    const owners = new Map<string, number>()
+    const ownerByConnectivityKey = new Map<BgaConnectivityKey, number>()
     for (const [index, connection] of board.connections.entries()) {
-      owners.set(connection.name, index + 1)
+      ownerByConnectivityKey.set(connection.name, index + 1)
       for (const point of connection.pointsToConnect) {
-        if (point.pointId) owners.set(point.pointId, index + 1)
-        if (point.pcb_port_id) owners.set(point.pcb_port_id, index + 1)
+        if (point.pointId) ownerByConnectivityKey.set(point.pointId, index + 1)
+        if (point.pcb_port_id)
+          ownerByConnectivityKey.set(point.pcb_port_id, index + 1)
       }
       const width = grid.widthByConnectionName.get(connection.name)!
       if (!this.wires.has(width))
@@ -45,8 +51,8 @@ export class BgaRoutingCopper {
     this.viaPadOwners = new Int32Array(grid.layerSize)
     for (const obstacle of board.obstacles) {
       const owner = obstacle.connectedTo
-        .map((id) => owners.get(id))
-        .find((id) => id !== undefined)
+        .map((connectivityKey) => ownerByConnectivityKey.get(connectivityKey))
+        .find((owner) => owner !== undefined)
       this.markObstacle(obstacle, owner ?? foreignCopper)
     }
     for (const trace of board.fixedTraces)

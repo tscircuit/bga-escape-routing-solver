@@ -1,0 +1,23 @@
+name: Build Debugger
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  build-site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+      - run: bun install
+      - run: bun run build:site
+      - uses: actions/upload-artifact@v4
+        with:
+          name: solver-debugger
+          path: cosmos-export
+          if-no-files-found: error
