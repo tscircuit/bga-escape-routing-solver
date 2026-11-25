@@ -125,6 +125,9 @@ export class BgaTrackSearch {
         })
       }
     }
-    if (!this.frontier.length) this.failure = "no_path"
+    if (this.frontier.length) return
+    // An exhausted search ends; start() resets it for the next endpoints.
+    this.failure = "no_path"
+    this.active = false
   }
 }

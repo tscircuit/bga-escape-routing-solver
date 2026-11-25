@@ -27,6 +27,10 @@ export class BgaRoutingCopper {
   readonly via: BgaRoutingBoard["via"]
   readonly clearance: number
   private readonly layers: number[]
+  private readonly ownerByConnectivityKey = new Map<
+    BgaConnectivityKey,
+    number
+  >()
 
   constructor(
     readonly grid: BgaRoutingGrid,
@@ -35,13 +39,13 @@ export class BgaRoutingCopper {
     this.via = board.via
     this.clearance = board.traceClearance
     this.layers = Array.from({ length: grid.layerCount }, (_, layer) => layer)
-    const ownerByConnectivityKey = new Map<BgaConnectivityKey, number>()
     for (const [index, connection] of board.connections.entries()) {
-      ownerByConnectivityKey.set(connection.name, index + 1)
+      this.ownerByConnectivityKey.set(connection.name, index + 1)
       for (const point of connection.pointsToConnect) {
-        if (point.pointId) ownerByConnectivityKey.set(point.pointId, index + 1)
+        if (point.pointId)
+          this.ownerByConnectivityKey.set(point.pointId, index + 1)
         if (point.pcb_port_id)
-          ownerByConnectivityKey.set(point.pcb_port_id, index + 1)
+          this.ownerByConnectivityKey.set(point.pcb_port_id, index + 1)
       }
       const width = grid.widthByConnectionName.get(connection.name)!
       if (!this.wires.has(width))
@@ -49,13 +53,24 @@ export class BgaRoutingCopper {
     }
     this.viaKeepout = new Uint8Array(grid.layerSize)
     this.viaPadOwners = new Int32Array(grid.layerSize)
-    for (const obstacle of board.obstacles) {
+    this.markBoard()
+  }
+
+  /** Clear all routed copper and mark the board's pads and fixed traces again
+   * in the same buffers. */
+  markBoard(): void {
+    for (const mask of this.wires.values()) mask.fill(0)
+    this.viaKeepout.fill(0)
+    this.viaPadOwners.fill(0)
+    for (const obstacle of this.board.obstacles) {
       const owner = obstacle.connectedTo
-        .map((connectivityKey) => ownerByConnectivityKey.get(connectivityKey))
+        .map((connectivityKey) =>
+          this.ownerByConnectivityKey.get(connectivityKey),
+        )
         .find((owner) => owner !== undefined)
       this.markObstacle(obstacle, owner ?? foreignCopper)
     }
-    for (const trace of board.fixedTraces)
+    for (const trace of this.board.fixedTraces)
       this.markRoute(trace.route, foreignCopper)
   }
 

@@ -56,6 +56,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
   failure?: RoutingFailure
   private search!: BgaTrackSearch
   private readonly routes: BgaTrace[] = []
+  private readonly promotedNets = new Set<Net>()
 
   constructor(private readonly input: BgaEscapeRoutingSolverInput) {
     super()
@@ -68,6 +69,7 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       countedTerminals: this.sites.size,
       reservedEscapes: this.escapes.size,
       routedPointPairs: this.routes.length,
+      promotedNets: this.promotedNets.size,
     }
   }
 
@@ -172,6 +174,8 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       })
     }
     this.search.step()
+    if (this.search.failure === "no_path" && this.restartWithNetFirst(net))
+      return
     if (this.search.failure) {
       this.failure = this.search.failure
       this.failed = true
@@ -200,6 +204,30 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     this.pairIndex = 0
     this.pairs = []
     this.netIndex++
+  }
+
+  /** Shorter nets route first and may close every path of a longer net. That
+   * net is then routed first on copper holding only the fixed board and the
+   * reserved escapes, and the others follow it again. Each net is promoted
+   * once, so the restarts end; a promoted net that finds no path fails. */
+  private restartWithNetFirst(net: Net): boolean {
+    if (this.netIndex === 0 || this.promotedNets.has(net)) return false
+    this.promotedNets.add(net)
+    this.nets.splice(this.netIndex, 1)
+    this.nets.unshift(net)
+    this.copper.markBoard()
+    for (const escape of this.escapes.values()) {
+      this.copper.markRoute(
+        getReservedEscapeRoute(escape, this.copper),
+        escape.owner,
+      )
+    }
+    this.routes.length = 0
+    this.netIndex = 0
+    this.pairIndex = 0
+    this.pairs = []
+    this.updateRoutingStats()
+    return true
   }
 
   private planNextTerminal(): void {
