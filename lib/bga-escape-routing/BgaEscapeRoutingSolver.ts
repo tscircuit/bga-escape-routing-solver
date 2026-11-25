@@ -215,14 +215,13 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
     this.promotedNets.add(net)
     this.nets.splice(this.netIndex, 1)
     this.nets.unshift(net)
-    this.copper = new BgaRoutingCopper(this.copper.grid, this.input.board)
+    this.copper.markBoard()
     for (const escape of this.escapes.values()) {
       this.copper.markRoute(
         getReservedEscapeRoute(escape, this.copper),
         escape.owner,
       )
     }
-    this.search = new BgaTrackSearch(this.copper)
     this.routes.length = 0
     this.netIndex = 0
     this.pairIndex = 0
