@@ -174,7 +174,8 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       })
     }
     this.search.step()
-    if (this.search.failure === "no_path" && this.restartWithNetFirst(net)) return
+    if (this.search.failure === "no_path" && this.restartWithNetFirst(net))
+      return
     if (this.search.failure) {
       this.failure = this.search.failure
       this.failed = true
