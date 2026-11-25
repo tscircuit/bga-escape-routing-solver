@@ -13,11 +13,11 @@ const input = JSON.parse(
   ).toString("utf8"),
 ) as BgaEscapeRoutingSolverInput
 
-test("connects all 99 STM32MP157 branches once the longest net is routed first", async (): Promise<void> => {
+test("connects all 99 STM32MP157 branches once each closed net is routed first", async (): Promise<void> => {
   const solver = new BgaEscapeRoutingSolver(input)
   solver.solve()
   expect(solver.error).toBeNull()
-  expect(solver.stats.promotedNets).toBe(1)
+  expect(solver.stats.promotedNets).toBe(6)
   const routes = solver.getOutput()
   expect(routes).toHaveLength(99)
   const endpointsByBranch = new Map(
