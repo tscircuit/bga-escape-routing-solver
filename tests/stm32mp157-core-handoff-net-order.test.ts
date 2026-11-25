@@ -13,14 +13,27 @@ const input = JSON.parse(
   ).toString("utf8"),
 ) as BgaEscapeRoutingSolverInput
 
-test("reproduces 38 shorter STM32MP157 nets closing every path of the longest net", async (): Promise<void> => {
+test("connects all 99 STM32MP157 branches once the longest net is routed first", async (): Promise<void> => {
   const solver = new BgaEscapeRoutingSolver(input)
   solver.solve()
-  expect(solver.failure).toBe("no_path")
-  expect(solver.error).toBe(
-    "BGA track search no_path for source_net_15_mst2 (pcb_port_11 to pcb_port_455)",
+  expect(solver.error).toBeNull()
+  expect(solver.stats.promotedNets).toBe(1)
+  const routes = solver.getOutput()
+  expect(routes).toHaveLength(99)
+  const endpointsByBranch = new Map(
+    input.pointPairs.map((pair) => [
+      pair.name,
+      pair.pointsToConnect.map((point) => point.pcb_port_id).sort(),
+    ]),
   )
-  expect(solver.stats.routedPointPairs).toBe(88)
+  for (const trace of routes) {
+    const wires = trace.route.filter((point) => point.route_type === "wire")
+    expect(
+      [wires[0]?.start_pcb_port_id, wires.at(-1)?.end_pcb_port_id].sort(),
+    ).toEqual(endpointsByBranch.get(trace.connection_name)!)
+    endpointsByBranch.delete(trace.connection_name)
+  }
+  expect(endpointsByBranch.size).toBe(0)
   await expect(
     getSvgFromGraphicsObject(solver.visualize(), { backgroundColor: "white" }),
   ).toMatchSvgSnapshot(import.meta.path)
