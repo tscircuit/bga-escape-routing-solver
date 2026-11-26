@@ -34,6 +34,7 @@ type RoutingFailure =
   | "terminal_outside_grid"
   | "no_via_site"
   | "incomplete_point_pairs"
+  | "unmatched_point_pairs"
   | "no_path"
   | "frontier_limit"
 type RoutingStage =
@@ -122,6 +123,19 @@ export class BgaEscapeRoutingSolver extends BaseSolver {
       )
       this.nets.push({ connection, pointPairs, terminals, span })
       this.terminals.push(...terminals)
+    }
+    const matchedPointPairs = new Set(
+      this.nets.flatMap((net) => net.pointPairs),
+    )
+    const unmatched = this.input.pointPairs.filter(
+      (pair) => !matchedPointPairs.has(pair),
+    )
+    if (unmatched.length > 0) {
+      this.failure = "unmatched_point_pairs"
+      this.failed = true
+      const names = unmatched.map((pair) => pair.name).join(", ")
+      this.error = `Point pairs do not match any connection in board.connections: ${names}`
+      return
     }
     this.nets.sort((a, b) => a.span - b.span)
     this.copper = new BgaRoutingCopper(grid, board)
