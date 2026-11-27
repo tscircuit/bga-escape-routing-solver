@@ -1,4 +1,5 @@
 import type {
+  BoardPoint,
   BgaConnectivityKey,
   BgaRoutingPad,
   BgaRoutingBoard,
@@ -6,6 +7,7 @@ import type {
 } from "./types"
 import { getLayerIndex } from "./routingLayers"
 import type { BgaRoutingGrid } from "./BgaRoutingGrid"
+import { findViaCenterInCell } from "./findViaCenterInCell"
 
 type CopperPrimitive = {
   bounds: BgaRoutingBoard["bounds"]
@@ -21,6 +23,7 @@ const geometryTolerance = 1e-8
 
 /** Occupancy is shared by nets until two distinct owners cover the same cell. */
 export class BgaRoutingCopper {
+  private readonly copperPrimitives: CopperPrimitive[] = []
   readonly wires = new Map<number, Int32Array>()
   readonly viaKeepout: Uint8Array
   readonly viaPadOwners: Int32Array
@@ -87,6 +90,9 @@ export class BgaRoutingCopper {
       rows - 1,
       Math.ceil((bounds.maxY + reach - origin.y) / step),
     )
+    if (firstColumn > lastColumn || firstRow > lastRow) return
+    this.copperPrimitives.push(primitive)
+
     for (let row = firstRow; row <= lastRow; row++) {
       for (let col = firstColumn; col <= lastColumn; col++) {
         const distance = primitive.distance(
@@ -218,6 +224,42 @@ export class BgaRoutingCopper {
         )
       }
     }
+  }
+
+  /** Refine the drill position while keeping the connection to the routing grid
+   * inside the via annulus on both layers. Board XY and widths are in mm. */
+  findTerminalViaCenter({
+    site,
+    owner,
+    traceWidth,
+  }: {
+    site: number
+    owner: number
+    traceWidth: number
+  }): BoardPoint | undefined {
+    const center = this.grid.getPoint(site)
+    const maxOffset = (this.via.padDiameter - traceWidth) / 2
+    const halfSize = Math.min(this.grid.step / 2, maxOffset / Math.SQRT2)
+    if (halfSize <= 0) return
+
+    const reach = halfSize * Math.SQRT2
+    const constraints = this.copperPrimitives.flatMap((primitive) => {
+      const requiredClearance =
+        primitive.pad && primitive.owner === owner
+          ? this.via.holeDiameter / 2 + geometryTolerance
+          : primitive.viaClearance
+      if (primitive.distance(center.x, center.y) > requiredClearance + reach) {
+        return []
+      }
+      return [{ distance: primitive.distance, requiredClearance }]
+    })
+    const { minX, maxX, minY, maxY } = this.board.bounds
+    constraints.push({
+      distance: (x, y) => Math.min(x - minX, maxX - x, y - minY, maxY - y),
+      requiredClearance:
+        (this.board.minBoardEdgeClearance ?? 0) + this.via.padDiameter / 2,
+    })
+    return findViaCenterInCell({ ...center, halfSize }, constraints)
   }
 
   canPlaceVia(site: number, owner: number): boolean {
