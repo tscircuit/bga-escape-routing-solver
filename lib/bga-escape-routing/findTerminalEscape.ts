@@ -1,5 +1,5 @@
 import FlatQueue from "flatqueue"
-import type { BgaConnectionPoint, BgaTerminalId } from "./types"
+import type { BoardPoint, BgaConnectionPoint, BgaTerminalId } from "./types"
 import { cellsPerBallPitch, gridNeighbors } from "./BgaRoutingGrid"
 import type { BgaRoutingCopper } from "./BgaRoutingCopper"
 
@@ -11,12 +11,27 @@ export type RoutingTerminal = {
   cell: number
 }
 
-export type TerminalEscape = { path: number[]; viaSite: number }
+export type TerminalEscape = {
+  path: number[]
+  viaSite: number
+  viaCenter?: BoardPoint
+}
+const maxCountedSites = 128
+
 type EscapeSearch = { terminal: RoutingTerminal; countSites: boolean }
 export type EscapeSites = {
   count: number
   distance: number
   escape?: TerminalEscape
+}
+
+function getEscapePath(cell: number, parents: Map<number, number>): number[] {
+  const path = [cell]
+  while (parents.has(cell)) {
+    cell = parents.get(cell)!
+    path.push(cell)
+  }
+  return path.reverse()
 }
 
 /** Count nearby via sites before reserving the most constrained pads first. */
@@ -46,18 +61,17 @@ export function findTerminalEscape(
       count++
       distance = Math.min(distance, cost)
       if (!countSites) {
-        const path = [cell]
-        while (parents.has(path[path.length - 1]!)) {
-          path.push(parents.get(path[path.length - 1]!)!)
-        }
         return {
           count,
           distance,
-          escape: { path: path.reverse(), viaSite: cell % grid.layerSize },
+          escape: {
+            path: getEscapePath(cell, parents),
+            viaSite: cell % grid.layerSize,
+          },
         }
       }
       // Additional sites cannot make an already unconstrained terminal scarce.
-      if (count === 128) break
+      if (count === maxCountedSites) break
     }
     const col = cell % grid.columns
     const row = Math.floor(cell / grid.columns) % grid.rows
@@ -77,6 +91,32 @@ export function findTerminalEscape(
       const priority = nextCost + ((x * grid.rows + y) / grid.layerSize) * 1e-9
       frontier.push({ cell: neighbor, cost: nextCost }, priority)
     }
+  }
+  if (count > 0) return { count, distance }
+
+  // Only the reachable surface cells can host this terminal's escape. A grid
+  // center can be obstructed while the surrounding cell still fits the drill.
+  const reachable = [...costs].sort(
+    ([a, aCost], [b, bCost]) => aCost - bCost || a - b,
+  )
+  for (const [cell, cost] of reachable) {
+    const viaSite = cell % grid.layerSize
+    const viaCenter = copper.findTerminalViaCenter({
+      site: viaSite,
+      owner: terminal.owner,
+      traceWidth: terminal.width,
+    })
+    if (!viaCenter) continue
+    count++
+    distance = Math.min(distance, cost)
+    if (!countSites) {
+      return {
+        count,
+        distance,
+        escape: { path: getEscapePath(cell, parents), viaSite, viaCenter },
+      }
+    }
+    if (count === maxCountedSites) break
   }
   return { count, distance }
 }

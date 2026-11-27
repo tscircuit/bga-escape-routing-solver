@@ -11,11 +11,15 @@ export type TerminalPair = {
 }
 
 type Route = BgaTrace["route"]
-type RouteContext = { width: number; copper: BgaRoutingCopper }
+type RouteContext = {
+  width: number
+  copper: BgaRoutingCopper
+  terminals: EscapedTerminal[]
+}
 
 function getWireAndViaRoute(
   cells: number[],
-  { width, copper }: RouteContext,
+  { width, copper, terminals }: RouteContext,
 ): Route {
   const { grid } = copper
   const vertices = cells.filter(
@@ -39,14 +43,28 @@ function getWireAndViaRoute(
         grid.layerCount,
       )
       if (previousLayer !== layer) {
+        const viaCenter = terminals.find(
+          (terminal) => terminal.viaSite === cell % grid.layerSize,
+        )?.viaCenter
+        if (viaCenter) {
+          route.push({
+            route_type: "wire",
+            ...viaCenter,
+            layer: previousLayer,
+            width,
+          })
+        }
         route.push({
           route_type: "via",
-          ...point,
+          ...(viaCenter ?? point),
           from_layer: previousLayer,
           to_layer: layer,
           via_diameter: copper.via.padDiameter,
           via_hole_diameter: copper.via.holeDiameter,
         })
+        if (viaCenter) {
+          route.push({ route_type: "wire", ...viaCenter, layer, width })
+        }
       }
     }
     route.push({ route_type: "wire", ...point, layer, width })
@@ -63,7 +81,11 @@ export function getReservedEscapeRoute(
   const targetLayer =
     point.layer === "top" ? innerSignalLayers[0]! : innerSignalLayers.at(-1)!
   const viaCell = targetLayer * copper.grid.layerSize + viaSite
-  const route = getWireAndViaRoute([...path, viaCell], { width, copper })
+  const route = getWireAndViaRoute([...path, viaCell], {
+    width,
+    copper,
+    terminals: [terminal],
+  })
   route.unshift({
     route_type: "wire",
     x: point.x,
@@ -89,7 +111,11 @@ export function getEscapedTraceRoute(
     path.length > 1 && lastSite === path[path.length - 2]! % layerSize
   const trunk = path.slice(skipStart ? 1 : 0, skipEnd ? -1 : undefined)
   const cells = [...start.path, ...trunk, ...end.path.toReversed()]
-  const route = getWireAndViaRoute(cells, { width: start.width, copper })
+  const route = getWireAndViaRoute(cells, {
+    width: start.width,
+    copper,
+    terminals: [start, end],
+  })
   const first = route[0]
   const last = route[route.length - 1]
   if (first?.route_type !== "wire" || last?.route_type !== "wire") {
